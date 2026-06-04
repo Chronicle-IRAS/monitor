@@ -59,10 +59,10 @@ npm run format
 
 ```env
 # 后端 API 地址
-VITE_API_BASE=http://121.41.3.7:3000/api
+VITE_API_BASE=http://<YOUR_SERVER_IP>:3000/api
 
 # 视频流主机地址
-VITE_STREAM_HOST=121.41.3.7
+VITE_STREAM_HOST=<YOUR_SERVER_IP>
 ```
 
 > 详细配置参见 `src/config.ts`，所有 API/流地址均收敛于此，避免硬编码散落。
@@ -103,7 +103,7 @@ deploy.bat
 3. 通过 SCP 上传 `dist/` 到 `/var/www/monitor-pro/`
 4. 移动文件并设置 Nginx 权限
 
-> 目标服务器地址默认为 `121.41.3.7`，请在 `deploy.bat` 中按需修改。
+> 目标服务器地址默认为 `<YOUR_SERVER_IP>`，请在 `deploy.bat` 中按需修改。
 
 ## 推荐 IDE
 

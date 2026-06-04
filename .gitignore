@@ -40,3 +40,9 @@ __screenshots__/
 
 # another
 .antigravitycli
+
+# Claude Code
+.claude/
+
+# Environment variables (contains sensitive server IPs/keys)
+.env
