@@ -34,10 +34,10 @@
 
     <el-dialog v-model="showAdd" title="动态部署新流节点" width="480px" destroy-on-close>
       <div class="occupied-ports-info" v-if="store.nodes && store.nodes.length > 0">
-        <div class="info-title">🔌 当前系统已分配端口 (请避开以下数字)：</div>
+        <div class="info-title"> 当前系统已分配端口 (请避开以下数字)：</div>
         <div class="tags-container">
           <el-tag v-for="node in store.nodes" :key="node.id" type="warning" effect="dark" round>
-            {{ node.id }} 👉 UDP: {{ node.udp }} | HTTP: {{ node.http }}
+            {{ node.id }} UDP: {{ node.udp }} | HTTP: {{ node.http }}
           </el-tag>
         </div>
       </div>
@@ -56,7 +56,7 @@
         <el-form-item label="推流模式" prop="streamType">
           <el-radio-group v-model="addForm.streamType">
             <el-radio label="ffmpeg">H.264 视频 (省带宽/流畅)</el-radio>
-            <el-radio label="mjpeg">MJPEG 原图 (高画质/零延迟)</el-radio>
+            <el-radio label="mjpeg">MJPEG 原图 (高画质/低延迟)</el-radio>
           </el-radio-group>
         </el-form-item>
 
@@ -66,12 +66,12 @@
 
         <el-form-item label="UDP 端口" prop="udp">
           <el-input-number v-model="addForm.udp" :min="9001" :max="9050" style="width: 100%" />
-          <div v-if="isPortUsed(addForm.udp)" class="err-tip">❌ 此 UDP 端口已被占用</div>
+          <div v-if="isPortUsed(addForm.udp)" class="err-tip"> 此 UDP 端口已被占用</div>
         </el-form-item>
 
         <el-form-item label="HTTP 端口" prop="http">
           <el-input-number v-model="addForm.http" :min="9051" :max="9100" style="width: 100%" />
-          <div v-if="isPortUsed(addForm.http)" class="err-tip">❌ 此 HTTP 端口已被占用</div>
+          <div v-if="isPortUsed(addForm.http)" class="err-tip"> 此 HTTP 端口已被占用</div>
         </el-form-item>
       </el-form>
 
@@ -105,7 +105,6 @@ const store = useDeviceStore()
 const showAdd = ref(false)
 const isStarting = ref(false)
 
-// 🚀 初始数据增加 isRecord
 const addForm = reactive({
   id: '',
   udp: 9001,

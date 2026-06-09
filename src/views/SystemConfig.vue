@@ -2,7 +2,7 @@
   <div class="system-config">
     <el-card shadow="never" class="header-card">
       <div class="config-header">
-        <h2>⚙️ 实验室云节点底层硬件核心监控 (阿里云边缘算力)</h2>
+        <h2>⚙️ 服务器状态信息 </h2>
         <div class="header-actions">
           <el-button type="primary" plain @click="forceSync">手动刷新高精数据</el-button>
         </div>
@@ -15,7 +15,7 @@
           <template #header><span class="card-title">处理器负载 (CPU)</span></template>
           <div class="dashboard-box">
             <el-progress type="dashboard" :percentage="cpuVal" color="#409eff" />
-            <div class="dashboard-footer">核心算力实时调度率</div>
+            <div class="dashboard-footer">CPU使用占用</div>
           </div>
         </el-card>
       </el-col>
@@ -75,10 +75,10 @@
           <el-tag type="warning" effect="dark">{{ store.nodes?.length || 0 }} 个在线节点</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="流媒体总缓冲阈值保护">
-          <span class="text-safe">15360 MB (严格先进先出覆盖)</span>
+          <span class="text-safe">15360 MB</span>
         </el-descriptions-item>
         <el-descriptions-item label="UDP通讯及转码管道状态">
-          <span class="text-safe">🟢 正常 (零拷贝封装封装技术就绪)</span>
+          <span class="text-safe">🟢 正常 </span>
         </el-descriptions-item>
       </el-descriptions>
     </el-card>
@@ -106,31 +106,29 @@ const recordColors = [
   { color: '#e74c3c', percentage: 100 },
 ]
 
-// 🚀 终极解法：创建一个转译为 any 的计算属性，完美规避旧 Store 接口定义的严格限制，彻底秒杀 type-check 报错
 const statusAny = computed(() => store.systemStatus as any)
 
-// 🚀 处理器负载 (CPU) 强行洗成 0-100 的安全数字
 const cpuVal = computed(() => {
   if (!statusAny.value) return 0
   const val = Number(statusAny.value.cpuUsage)
   return Number.isNaN(val) || val < 0 ? 0 : val > 100 ? 100 : val
 })
 
-// 🚀 物理内存占用率
+// 物理内存占用率
 const memVal = computed(() => {
   if (!statusAny.value) return 0
   const val = Number(statusAny.value.memUsage)
   return Number.isNaN(val) || val < 0 ? 0 : val > 100 ? 100 : val
 })
 
-// 🚀 15GB 视频缓冲池百分比
+// 15GB 视频缓冲池百分比
 const recordVal = computed(() => {
   if (!statusAny.value) return 0
   const val = Number(statusAny.value.recordPercent)
   return Number.isNaN(val) || val < 0 ? 0 : val > 100 ? 100 : val
 })
 
-// 🚀 15GB 视频缓冲池已用文字表现（自动由 MB 转换为更直观的 GB）
+// 15GB 视频缓冲池已用文字表现（自动由 MB 转换为更直观的 GB）
 const recordUsedStr = computed(() => {
   if (!statusAny.value || !statusAny.value.recordUsageMB) return '0.0 MB'
   const mb = Number(statusAny.value.recordUsageMB)
@@ -140,7 +138,7 @@ const recordUsedStr = computed(() => {
   return mb.toFixed(1) + ' MB'
 })
 
-// 🚀 系统主磁盘占用率
+//  系统主磁盘占用率
 const diskVal = computed(() => {
   if (!statusAny.value) return 0
   const val = Number(statusAny.value.diskUsage)

@@ -209,7 +209,6 @@ onUnmounted(() => {
   z-index: 2;
 }
 
-/* 🚀 录制标签呼吸灯动效样式 */
 .tag-rec {
   position: absolute;
   top: 10px;
@@ -310,7 +309,7 @@ onUnmounted(() => {
   opacity: 0;
 }
 
-/* --- 📱 移动端：放大态由「左右分栏」改为「上下堆叠」 --- */
+/* --- 移动端：放大态由「左右分栏」改为「上下堆叠」 --- */
 @media screen and (max-width: 768px) {
   .monitor-card.is-expanded {
     width: 94vw;

@@ -28,17 +28,17 @@ const emit = defineEmits<{ select: [] }>()
 
     <el-menu-item index="/records">
       <el-icon><Film /></el-icon>
-      <template #title>历史录像回溯</template>
+      <template #title>历史录像</template>
     </el-menu-item>
 
     <el-menu-item index="/terminal">
       <el-icon><ChatLineRound /></el-icon>
-      <template #title>数据通讯终端</template>
+      <template #title>端口状态</template>
     </el-menu-item>
 
     <el-menu-item index="/config">
       <el-icon><Setting /></el-icon>
-      <template #title>系统参数配置</template>
+      <template #title>系统配置信息</template>
     </el-menu-item>
   </el-menu>
 </template>

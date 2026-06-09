@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
-import { API_BASE } from '@/config'
+import { ADMIN_PASSWORD, API_BASE } from '@/config'
 
 axios.defaults.timeout = 5000
 
@@ -32,9 +32,8 @@ export const useDeviceStore = defineStore('device', {
     },
   },
   actions: {
-    // 🚀 核心修复：这个 login 函数绝不能漏掉
     login(password: string) {
-      if (password === 'esp32admin') {
+      if (ADMIN_PASSWORD && password === ADMIN_PASSWORD) {
         this.isAdmin = true
         localStorage.setItem('pro-admin-auth', 'true')
         ElMessage.success('管理员认证成功，控制台已解锁')

@@ -7,6 +7,9 @@ export const API_BASE: string = import.meta.env.VITE_API_BASE ?? 'http://<YOUR_S
 /** 视频流主机（不含端口，端口随节点动态分配） */
 export const STREAM_HOST: string = import.meta.env.VITE_STREAM_HOST ?? '<YOUR_SERVER_IP>'
 
+/** Client-side admin gate. Keep the actual value in local env files only. */
+export const ADMIN_PASSWORD: string = import.meta.env.VITE_ADMIN_PASSWORD ?? ''
+
 /** 拼接某节点的 HTTP 流地址，如 MJPEG 原图 */
 export const streamHttpUrl = (port: number, path = ''): string =>
   `http://${STREAM_HOST}:${port}${path}`
