@@ -46,3 +46,6 @@ __screenshots__/
 
 # Environment variables (contains sensitive server IPs/keys)
 .env
+.env.*
+!.env.example
+!.env.production.example

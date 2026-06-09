@@ -1,20 +1,44 @@
-
 @echo off
+setlocal
 
-chcp 65001 >nul
-echo 🚀 [1/4] 开始构建 Vue 生产环境产物...
+if "%DEPLOY_SERVER%"=="" (
+  echo ERROR: DEPLOY_SERVER is not set.
+  echo Run: set DEPLOY_SERVER=your.server.ip
+  exit /b 1
+)
+
+set "SERVER=%DEPLOY_SERVER%"
+set "REMOTE_DIR=/var/www/monitor-pro"
+set "UPLOAD_DIR=/tmp/monitor-pro-upload"
+
+echo [1/5] Building Vue production bundle...
 call npm run build
+if errorlevel 1 goto fail
 
-echo 🧹 [2/4] 正在连接阿里云，清理历史残留代码...
-ssh root@<YOUR_SERVER_IP> "rm -rf /var/www/monitor-pro/*"
+if not exist "dist\index.html" (
+  echo ERROR: Build output is missing: dist\index.html
+  exit /b 1
+)
 
-ssh root@<YOUR_SERVER_IP> "ffmpeg -version"
+echo [2/5] Checking SSH connection and remote directories...
+ssh root@%SERVER% "rm -rf %UPLOAD_DIR% && mkdir -p %UPLOAD_DIR% %REMOTE_DIR%"
+if errorlevel 1 goto fail
 
-echo 📤 [3/4] 正在将最新产物推送到服务器...
-scp -r .\dist root@<YOUR_SERVER_IP>:/var/www/monitor-pro/
+echo [optional] Checking remote FFmpeg version...
+ssh root@%SERVER% "ffmpeg -version"
+if errorlevel 1 echo WARNING: FFmpeg check failed. Continuing frontend static deployment...
 
-echo ⚙️ [4/4] 正在服务器端解包并配置 Nginx 权限...
-ssh root@<YOUR_SERVER_IP> "mv /var/www/monitor-pro/dist/* /var/www/monitor-pro/ && rm -rf /var/www/monitor-pro/dist && chmod -R 755 /var/www/monitor-pro"
+echo [3/5] Uploading build output to remote temporary directory...
+scp -r ".\dist" root@%SERVER%:%UPLOAD_DIR%/
+if errorlevel 1 goto fail
 
-echo.
-echo ✅ 部署大功告成！全网最新版本已上线！
+echo [4/5] Replacing live static files and setting permissions...
+ssh root@%SERVER% "rm -rf %REMOTE_DIR%/* && cp -a %UPLOAD_DIR%/dist/. %REMOTE_DIR%/ && rm -rf %UPLOAD_DIR% && chmod -R 755 %REMOTE_DIR%"
+if errorlevel 1 goto fail
+
+echo [5/5] Deploy completed: %SERVER%
+exit /b 0
+
+:fail
+echo ERROR: Deploy failed. Check the error output above.
+exit /b 1

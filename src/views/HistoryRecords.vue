@@ -1,25 +1,43 @@
 <template>
   <div class="records-container">
     <el-container class="records-layout" v-if="store.isAdmin" v-loading="loading">
-      <el-aside width="260px" class="device-aside">
+      <el-aside width="280px" class="device-aside">
         <div class="aside-header">
-          <el-icon><FolderOpened /></el-icon>
-          <span>监控设备录像池</span>
+          <div class="aside-title">
+            <el-icon><FolderOpened /></el-icon>
+            <span>设备录像池</span>
+          </div>
+          <el-tag size="small" effect="plain">{{ recordTree.length }} 个节点</el-tag>
         </div>
+
+        <div class="aside-summary">
+          <div class="summary-item">
+            <span class="summary-label">录像切片</span>
+            <strong>{{ totalFiles }}</strong>
+          </div>
+          <div class="summary-divider"></div>
+          <div class="summary-item">
+            <span class="summary-label">占用空间</span>
+            <strong>{{ totalSizeLabel }}</strong>
+          </div>
+        </div>
+
         <el-menu :default-active="activeDevice" class="device-menu" @select="handleDeviceSelect">
           <el-menu-item v-for="item in recordTree" :key="item.deviceId" :index="item.deviceId">
             <el-icon><VideoCamera /></el-icon>
             <template #title>
               <div class="menu-item-content">
-                <span class="device-name">{{ item.deviceId }}</span>
+                <div class="device-copy">
+                  <span class="device-name">{{ item.deviceId }}</span>
+                  <span class="device-meta">{{ item.files.length }} 个录像文件</span>
+                </div>
 
                 <div class="menu-actions" @click.stop>
-                  <el-badge :value="item.files.length" type="info" class="file-badge" />
                   <el-button
                     type="text"
                     :icon="DeleteIcon"
                     class="delete-folder-btn"
-                    title="彻底删除此设备所有录像"
+                    title="删除此设备所有录像"
                     @click="deleteDeviceFolder(item.deviceId)"
                   />
                 </div>
@@ -35,10 +53,14 @@
       <el-main class="file-main">
         <div class="main-header">
           <div class="title-area">
-            <h2>
-              当前节点：<span class="highlight">{{ activeDevice || '未选择' }}</span>
-            </h2>
-            <p class="subtitle">系统严格执行 15GB 空间上限保护，新录制文件将自动覆盖旧档案</p>
+            <div class="eyebrow">History Archive</div>
+            <h2>{{ activeDevice || '未选择设备' }}</h2>
+            <p class="subtitle">15GB 录像池按先进先出策略自动覆盖旧文件</p>
+            <div class="metric-row">
+              <el-tag effect="plain" type="primary">{{ currentFiles.length }} 个切片</el-tag>
+              <el-tag effect="plain" type="success">{{ activeSizeLabel }}</el-tag>
+              <el-tag effect="plain" type="info">{{ latestTimeLabel }}</el-tag>
+            </div>
           </div>
 
           <div class="action-group">
@@ -52,57 +74,74 @@
                 批量删除 (已选 {{ multipleSelection.length }} 项)
               </el-button>
             </transition>
-            <el-button :icon="Refresh" circle @click="fetchRecordTree" />
+            <el-button :icon="Refresh" circle title="刷新录像列表" @click="fetchRecordTree" />
           </div>
         </div>
 
-        <el-table
-          :data="currentFiles"
-          stripe
-          style="width: 100%"
-          height="calc(100vh - 220px)"
-          empty-text="此设备下暂无历史视频切片"
-          @selection-change="handleSelectionChange"
-        >
-          <el-table-column type="selection" width="55" align="center" />
+        <div class="table-shell">
+          <el-table
+            :data="currentFiles"
+            stripe
+            style="width: 100%"
+            height="calc(100vh - 280px)"
+            @selection-change="handleSelectionChange"
+          >
+            <el-table-column type="selection" width="54" align="center" />
 
-          <el-table-column type="index" label="序号" width="60" align="center" />
-          <el-table-column prop="filename" label="视频档案名称" min-width="200">
-            <template #default="scope">
-              <div class="file-name-cell">
-                <el-icon class="mp4-icon"><Film /></el-icon>
-                <span>{{ scope.row.filename }}</span>
+            <el-table-column type="index" label="序号" width="72" align="center" />
+            <el-table-column prop="filename" label="视频档案名称" min-width="260">
+              <template #default="scope">
+                <div class="file-name-cell">
+                  <span class="file-icon">
+                    <el-icon><Film /></el-icon>
+                  </span>
+                  <div class="file-copy">
+                    <span class="file-title">{{ scope.row.filename }}</span>
+                    <span class="file-subtitle">MP4 录像切片</span>
+                  </div>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="time" label="录制生成时间" min-width="180" align="center" />
+            <el-table-column prop="size" label="文件大小" width="130" align="center">
+              <template #default="scope">
+                <el-tag size="small" type="success" effect="plain">{{ scope.row.size }}</el-tag>
+              </template>
+            </el-table-column>
+
+            <el-table-column label="操作" width="172" align="center" fixed="right">
+              <template #default="scope">
+                <div class="row-actions">
+                  <el-button
+                    type="primary"
+                    size="small"
+                    :icon="Download"
+                    @click="downloadVideo(scope.row.filename)"
+                  >
+                    下载
+                  </el-button>
+                  <el-button
+                    type="danger"
+                    size="small"
+                    plain
+                    :icon="DeleteIcon"
+                    @click="deleteVideo(scope.row.filename)"
+                  >
+                    删除
+                  </el-button>
+                </div>
+              </template>
+            </el-table-column>
+
+            <template #empty>
+              <div class="table-empty">
+                <el-icon><Film /></el-icon>
+                <strong>{{ activeDevice ? '暂无历史视频切片' : '请选择左侧设备节点' }}</strong>
+                <span>{{ emptyHint }}</span>
               </div>
             </template>
-          </el-table-column>
-          <el-table-column prop="time" label="录制生成时间" width="180" align="center" />
-          <el-table-column prop="size" label="文件大小" width="120" align="center">
-            <template #default="scope">
-              <el-tag size="small" type="success" effect="plain">{{ scope.row.size }}</el-tag>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="操作区域" width="180" align="center" fixed="right">
-            <template #default="scope">
-              <el-button
-                type="primary"
-                size="small"
-                :icon="Download"
-                @click="downloadVideo(scope.row.filename)"
-              >
-                下载
-              </el-button>
-              <el-button
-                type="danger"
-                size="small"
-                :icon="DeleteIcon"
-                @click="deleteVideo(scope.row.filename)"
-              >
-                删除
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
+          </el-table>
+        </div>
       </el-main>
     </el-container>
 
@@ -119,7 +158,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, shallowRef, computed, onMounted } from 'vue'
 import {
   FolderOpened,
   VideoCamera,
@@ -145,15 +184,40 @@ interface RecordNode {
 }
 
 const store = useDeviceStore()
-const loading = ref(false)
+const loading = shallowRef(false)
 const recordTree = ref<RecordNode[]>([])
-const activeDevice = ref<string>('')
+const activeDevice = shallowRef('')
 const multipleSelection = ref<RecordFile[]>([])
 
-const currentFiles = computed(() => {
-  const target = recordTree.value.find((node) => node.deviceId === activeDevice.value)
-  return target ? target.files : []
-})
+const activeNode = computed(() => recordTree.value.find((node) => node.deviceId === activeDevice.value))
+const currentFiles = computed(() => activeNode.value?.files ?? [])
+const totalFiles = computed(() =>
+  recordTree.value.reduce((total, node) => total + node.files.length, 0),
+)
+const totalSizeMB = computed(() =>
+  recordTree.value.reduce((total, node) => total + sumFileSize(node.files), 0),
+)
+const activeSizeMB = computed(() => sumFileSize(currentFiles.value))
+const totalSizeLabel = computed(() => formatSize(totalSizeMB.value))
+const activeSizeLabel = computed(() => formatSize(activeSizeMB.value))
+const latestTimeLabel = computed(() => currentFiles.value[0]?.time || '暂无录像')
+const emptyHint = computed(() =>
+  activeDevice.value ? '当前设备还没有生成录像文件' : '选择一个设备后可查看录像列表',
+)
+
+const parseSizeMB = (size: string) => {
+  const value = Number.parseFloat(size)
+  if (Number.isNaN(value)) return 0
+  return size.toLowerCase().includes('gb') ? value * 1024 : value
+}
+
+const sumFileSize = (files: RecordFile[]) =>
+  files.reduce((total, file) => total + parseSizeMB(file.size), 0)
+
+const formatSize = (sizeMB: number) => {
+  if (sizeMB >= 1024) return `${(sizeMB / 1024).toFixed(2)} GB`
+  return `${sizeMB.toFixed(1)} MB`
+}
 
 const handleSelectionChange = (val: RecordFile[]) => {
   multipleSelection.value = val
@@ -191,10 +255,10 @@ const deleteDeviceFolder = (deviceId: string) => {
   if (!store.isAdmin) return
 
   ElMessageBox.confirm(
-    `毁灭性警告：确定要从云服务器中【彻底删除】设备 [ ${deviceId} ] 的整个录像文件夹吗？该文件夹下的所有历史监控视频将全部被抹除，本操作不可恢复！`,
-    '设备录像池完整清空提示',
+    `确定删除设备 [ ${deviceId} ] 的全部录像文件吗？该操作会清空此设备的历史视频，且不可恢复。`,
+    '删除设备录像目录',
     {
-      confirmButtonText: '确定级联删除整个目录',
+      confirmButtonText: '删除整个目录',
       cancelButtonText: '取消',
       type: 'error',
       buttonSize: 'small',
@@ -204,7 +268,7 @@ const deleteDeviceFolder = (deviceId: string) => {
       loading.value = true
       try {
         await axios.delete(`${API_BASE}/records/${deviceId}`)
-        ElMessage.success(`设备 [${deviceId}] 的录像目录已成功从磁盘粉碎`)
+        ElMessage.success(`设备 [${deviceId}] 的录像目录已删除`)
 
         // 如果删掉的正是当前高亮选中的，退回空选状态状态
         if (activeDevice.value === deviceId) {
@@ -250,7 +314,7 @@ const deleteVideo = (filename: string) => {
       loading.value = true
       try {
         await axios.delete(`${API_BASE}/records/${activeDevice.value}/${filename}`)
-        ElMessage.success('该文件已被成功物理清除')
+        ElMessage.success('录像文件已删除')
         await fetchRecordTree()
       } catch (error) {
         ElMessage.error('删除失败')
@@ -269,10 +333,10 @@ const handleBatchDelete = () => {
   const fileNamesPayload = multipleSelection.value.map((item) => item.filename)
 
   ElMessageBox.confirm(
-    `高危操作警告：您当前勾选了 [ ${totalSelected} ] 个视频文件，确定要将它们从服务器中批量抹除吗？`,
-    '存储空间批量销毁提示',
+    `当前已选择 [ ${totalSelected} ] 个视频文件，确定批量删除吗？该操作不可恢复。`,
+    '批量删除录像文件',
     {
-      confirmButtonText: `确定批量粉碎这 ${totalSelected} 个文件`,
+      confirmButtonText: `删除 ${totalSelected} 个文件`,
       cancelButtonText: '取消',
       type: 'error',
       buttonSize: 'small',
@@ -285,7 +349,7 @@ const handleBatchDelete = () => {
           deviceId: activeDevice.value,
           filenames: fileNamesPayload,
         })
-        ElMessage.success(`成功批量粉碎了 ${totalSelected} 个历史视频档案！`)
+        ElMessage.success(`已删除 ${totalSelected} 个历史视频文件`)
         multipleSelection.value = []
         await fetchRecordTree()
       } catch (error) {
@@ -312,42 +376,97 @@ onMounted(() => {
 .records-layout {
   background: var(--el-bg-color-overlay);
   border: 1px solid var(--el-border-color-lighter);
-  border-radius: 12px;
+  border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
 }
 .device-aside {
-  background: var(--el-bg-color);
+  background: color-mix(in srgb, var(--el-bg-color) 92%, var(--el-color-primary) 8%);
   border-right: 1px solid var(--el-border-color-lighter);
   display: flex;
   flex-direction: column;
 }
 .aside-header {
-  padding: 16px 20px;
+  padding: 16px 18px;
   font-size: 14px;
   font-weight: bold;
   color: var(--el-text-color-primary);
   border-bottom: 1px solid var(--el-border-color-lighter);
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
   background: var(--el-fill-color-light);
+}
+.aside-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.aside-summary {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.summary-label {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.summary-item strong {
+  color: var(--el-text-color-primary);
+  font-size: 18px;
+  line-height: 1.2;
+}
+.summary-divider {
+  width: 1px;
+  height: 34px;
+  background: var(--el-border-color-lighter);
 }
 .device-menu {
   border-right: none;
   background: transparent;
+  padding: 8px;
+}
+.device-menu :deep(.el-menu-item) {
+  height: 62px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  padding: 0 10px !important;
 }
 .menu-item-content {
   display: flex;
   justify-content: space-between;
   align-items: center;
   width: 100%;
+  min-width: 0;
+}
+.device-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 .device-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 130px;
+  max-width: 150px;
+  line-height: 1.2;
+}
+.device-meta {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.2;
 }
 .empty-aside {
   padding-top: 40px;
@@ -372,45 +491,142 @@ onMounted(() => {
 .file-main {
   background: var(--el-bg-color-overlay);
   padding: 24px;
+  min-width: 0;
 }
 .main-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
-  padding-bottom: 15px;
+  gap: 18px;
+  margin-bottom: 18px;
+  padding: 18px 20px;
+  background: var(--el-fill-color-extra-light);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
+.title-area {
+  min-width: 0;
+}
+.eyebrow {
+  margin-bottom: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
 }
 .title-area h2 {
-  margin: 0 0 6px 0;
-  font-size: 18px;
+  margin: 0 0 8px 0;
   color: var(--el-text-color-primary);
+  font-size: 22px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.metric-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
 }
 .title-area .highlight {
-  color: var(--el-color-primary);
+  color: var(--el-text-color-primary);
 }
 .subtitle {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--el-text-color-secondary);
 }
 .action-group {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-shrink: 0;
+}
+.table-shell {
+  overflow: hidden;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-bg-color);
 }
 .file-name-cell {
   display: flex;
   align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.file-icon {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+}
+.file-icon .el-icon {
+  font-size: 16px;
+}
+.file-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+.file-title {
+  overflow: hidden;
+  color: var(--el-text-color-primary);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-subtitle {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.row-actions {
+  display: flex;
+  justify-content: center;
   gap: 8px;
 }
-.mp4-icon {
-  color: var(--el-color-primary);
-  font-size: 16px;
+.row-actions .el-button + .el-button {
+  margin-left: 0;
+}
+.table-empty {
+  min-height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--el-text-color-secondary);
+}
+.table-empty .el-icon {
+  color: var(--el-text-color-placeholder);
+  font-size: 42px;
+}
+.table-empty strong {
+  color: var(--el-text-color-primary);
+  font-size: 15px;
+}
+.table-empty span {
+  font-size: 13px;
 }
 :deep(.el-menu-item.is-active) {
   background-color: var(--el-color-primary-light-9) !important;
   font-weight: bold;
+}
+:deep(.el-table) {
+  --el-table-border-color: var(--el-border-color-lighter);
+  --el-table-header-bg-color: var(--el-fill-color-extra-light);
+}
+:deep(.el-table th.el-table__cell) {
+  color: var(--el-text-color-secondary);
+  font-weight: 700;
+}
+:deep(.el-table .el-table__cell) {
+  padding: 12px 0;
 }
 .fade-enter-active,
 .fade-leave-active {
@@ -434,7 +650,7 @@ onMounted(() => {
   .device-aside {
     width: 100% !important;
     max-width: 100% !important;
-    max-height: 30vh;
+    max-height: 36vh;
     overflow-y: auto;
     border-right: none;
     border-bottom: 1px solid var(--el-border-color-lighter);
@@ -447,9 +663,19 @@ onMounted(() => {
     flex-direction: column;
     align-items: stretch;
     gap: 12px;
+    padding: 16px;
+  }
+  .action-group {
+    justify-content: space-between;
   }
   .device-name {
     max-width: 60vw;
+  }
+  .row-actions {
+    flex-direction: column;
+  }
+  .row-actions .el-button {
+    width: 100%;
   }
 }
 </style>

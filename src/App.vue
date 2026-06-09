@@ -210,7 +210,7 @@ body {
   display: flex;
 }
 
-/* --- 🌟 侧边栏：苹果级阻尼曲线 --- */
+/* --- 侧边栏：苹果级阻尼曲线 --- */
 .aside-menu {
   background-color: var(--el-bg-color-overlay);
   width: 220px;
@@ -228,7 +228,7 @@ body {
   width: 64px;
 }
 
-/* --- 🌟 Logo 纯 CSS 交叉渐变 --- */
+/* ---  Logo 纯 CSS 交叉渐变 --- */
 .logo-container {
   height: 60px;
   line-height: 60px;

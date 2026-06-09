@@ -7,11 +7,11 @@ const service = axios.create({
   timeout: 5000,
 })
 
-// 响应拦截器：面试必考点！
+// 响应拦截器：
 service.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    ElMessage.error(error.response?.data?.message || '网络连接坠机')
+    ElMessage.error(error.response?.data?.message || '网络连接失败')
     return Promise.reject(error)
   },
 )
