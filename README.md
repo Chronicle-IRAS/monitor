@@ -26,46 +26,66 @@
 - **视频解码**: jmuxer
 - **代码规范**: ESLint + Oxlint + Prettier
 
+## 项目用途
+
+本项目是实验室 ESP32 摄像头集群的监控前端，用于在浏览器中集中查看各节点的实时画面、回放历史录像、管理设备端口与节点启停，并由管理员维护系统配置。后端 API 与视频流服务需单独部署，前端通过环境变量指定其地址。
+
 ## 前置条件
 
-- Node.js `^20.19.0` 或 `>=22.12.0`
-- npm 8+
+- Node.js `^20.19.0` 或 `>=22.12.0`（见 `package.json` 的 `engines` 字段）
+- npm（项目使用 `package-lock.json` 锁定依赖版本）
 
-## 本地开发
+## 安装依赖
 
 ```sh
-# 安装依赖
+npm ci        # 按 package-lock.json 精确安装（推荐）
+# 或
 npm install
-
-# 启动开发服务器（热更新）
-npm run dev
-
-# 生产构建
-npm run build
-
-# 预览生产构建
-npm run preview
-
-# 代码检查
-npm run lint
-
-# 代码格式化
-npm run format
 ```
 
 ## 环境变量
 
-在项目根目录创建 `.env` 文件（亦可使用 `.env.development` / `.env.production` 区分环境）：
+在项目根目录创建 `.env` 文件（亦可使用 `.env.development` / `.env.production` 区分环境；这些文件已被 `.gitignore` 忽略，请勿提交）：
 
 ```env
 # 后端 API 地址
 VITE_API_BASE=http://<YOUR_SERVER_IP>:3000/api
 
-# 视频流主机地址
+# 视频流主机地址（不含端口）
 VITE_STREAM_HOST=<YOUR_SERVER_IP>
+
+# 管理员密码（可选，仅保存在本地环境文件中）
+VITE_ADMIN_PASSWORD=<YOUR_ADMIN_PASSWORD>
 ```
 
 > 详细配置参见 `src/config.ts`，所有 API/流地址均收敛于此，避免硬编码散落。
+
+## 启动开发环境
+
+```sh
+npm run dev
+```
+
+启动 Vite 开发服务器（支持热更新），默认地址为 http://localhost:5173 ，实际地址以终端输出为准。
+
+## 构建生产版本
+
+```sh
+npm run build
+```
+
+该命令会并行执行类型检查（`vue-tsc --build`）与 Vite 打包，产物输出至 `dist/` 目录。构建完成后可本地预览：
+
+```sh
+npm run preview
+```
+
+## 其他命令
+
+```sh
+npm run lint     # 代码检查（Oxlint + ESLint，自动修复）
+npm run format   # 使用 Prettier 格式化 src/
+```
 
 ## 项目结构
 
@@ -91,19 +111,20 @@ VITE_STREAM_HOST=<YOUR_SERVER_IP>
 
 ## 部署
 
-项目提供 `deploy.bat` 一键部署脚本，自动完成构建 → 上传 → Nginx 更新：
+项目提供 `deploy.bat` 一键部署脚本（Windows），自动完成构建 → 上传 → 替换线上静态文件。执行前需设置目标服务器地址：
 
 ```bat
+set DEPLOY_SERVER=<YOUR_SERVER_IP>
 deploy.bat
 ```
 
 脚本执行流程：
 1. `npm run build` 构建生产产物
-2. 通过 SSH 连接远程服务器，清理旧文件
-3. 通过 SCP 上传 `dist/` 到 `/var/www/monitor-pro/`
-4. 移动文件并设置 Nginx 权限
+2. 通过 SSH 连接远程服务器，准备临时上传目录
+3. 通过 SCP 上传 `dist/` 到临时目录
+4. 替换 `/var/www/monitor-pro/` 下的线上文件并设置权限
 
-> 目标服务器地址默认为 `<YOUR_SERVER_IP>`，请在 `deploy.bat` 中按需修改。
+> 脚本以 `root` 用户通过 SSH/SCP 连接服务器，请提前配置好 SSH 访问。
 
 ## 推荐 IDE
 
