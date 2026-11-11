@@ -53,7 +53,7 @@ test('节点生命周期、WebSocket/MJPEG 分发、系统指标与录像 API', 
   const http = await getFreeTcpPort()
   const streamNode = { id: 'cam1', udp, http, streamType: 'ffmpeg', isRecord: true }
 
-  const bad = await postJson(`${base}/nodes/start`, { ...streamNode, id: 'bad id' })
+  const bad = await postJson(`${base}/nodes/start`, { ...streamNode, id: 'bad/id' })
   assert.equal(bad.status, 400)
 
   const started = await postJson(`${base}/nodes/start`, streamNode)
@@ -135,6 +135,16 @@ test('节点生命周期、WebSocket/MJPEG 分发、系统指标与录像 API', 
 
   const missing = await postJson(`${base}/nodes/stop`, { id: 'ghost' })
   assert.equal(missing.status, 404)
+
+  // 前端表单只要求“必填”，中文/空格名称必须可用（路径与 URL 保留字符除外）
+  const unicodeNode = await postJson(`${base}/nodes/start`, {
+    id: '实验室 A1',
+    udp,
+    http,
+    streamType: 'ffmpeg',
+  })
+  assert.equal(unicodeNode.status, 200)
+  assert.equal(unicodeNode.body.id, '实验室 A1')
 
   const reset = await postJson(`${base}/nodes/reset`)
   assert.equal(reset.status, 200)

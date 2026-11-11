@@ -49,22 +49,26 @@ export function probeUdp(port, host = '0.0.0.0') {
   })
 }
 
-/** 解析 iproute2 `ss -H -ltn` / `ss -H -lun` 输出。 */
-function parseSs(output, proto) {
+/**
+ * 解析 `ss -H -ltn` / `ss -H -lun`。
+ * 兼容带 `Netid` 列（多协议或部分 iproute2 版本）与不带该列的两种输出。
+ */
+export function parseSsOutput(output, proto) {
   const ports = new Set()
   for (const raw of output.split(/\r?\n/)) {
     const fields = raw.trim().split(/\s+/)
     if (fields.length < 4) continue
-    const state = fields[0].toUpperCase()
-    if (proto === 'tcp' && state !== 'LISTEN') continue
-    const port = parsePort(fields[3])
+    const stateIndex = fields[0]?.toLowerCase() === proto ? 1 : 0
+    if (fields.length < stateIndex + 4) continue
+    if (proto === 'tcp' && fields[stateIndex]?.toUpperCase() !== 'LISTEN') continue
+    const port = parsePort(fields[stateIndex + 3])
     if (port) ports.add(port)
   }
   return sorted(ports)
 }
 
-/** 解析 netstat -lntu 输出（ss 不可用时的兜底）。 */
-function parseUnixNetstat(output) {
+/** 解析 `netstat -lntu` 输出（ss 不可用时的兜底）。 */
+export function parseUnixNetstatOutput(output) {
   const tcp = new Set()
   const udp = new Set()
   for (const raw of output.split(/\r?\n/)) {
@@ -72,21 +76,31 @@ function parseUnixNetstat(output) {
     const proto = fields[0]?.toLowerCase()
     if (proto !== 'tcp' && proto !== 'udp') continue
     if (fields.length < 5) continue
-    const state = fields[5]?.toUpperCase()
-    if (proto === 'tcp' && state !== 'LISTEN') continue
+    if (proto === 'tcp' && fields[5]?.toUpperCase() !== 'LISTEN') continue
     const port = parsePort(fields[3])
     if (port) (proto === 'tcp' ? tcp : udp).add(port)
   }
   return { tcp: sorted(tcp), udp: sorted(udp) }
 }
 
-/** 解析 Windows netstat -ano -p TCP/UDP 输出。 */
-function parseWindowsNetstat(output, proto) {
+function isWindowsListeningRow(fields) {
+  const state = fields[3]?.toUpperCase() ?? ''
+  if (state.includes('LISTEN')) return true
+  // 非英文系统状态：外部地址端口为 0 / * 且不是已知的连接态时，视为监听。
+  const foreign = fields[2] ?? ''
+  if (!/(^|:)(0|\*)$/.test(foreign)) return false
+  return !/ESTABLISHED|TIME_WAIT|CLOSE_WAIT|SYN_SENT|SYN_RECEIVED|FIN_WAIT|LAST_ACK|CLOSING|DELETE_TCB/.test(
+    state,
+  )
+}
+
+/** 解析 Windows `netstat -ano -p TCP|UDP` 输出。 */
+export function parseWindowsNetstatOutput(output, proto) {
   const ports = new Set()
   for (const raw of output.split(/\r?\n/)) {
     const fields = raw.trim().split(/\s+/)
     if (fields[0]?.toUpperCase() !== proto) continue
-    if (proto === 'TCP' && fields[3]?.toUpperCase() !== 'LISTENING') continue
+    if (proto === 'TCP' && !isWindowsListeningRow(fields)) continue
     const port = parsePort(fields[1])
     if (port) ports.add(port)
   }
@@ -115,8 +129,8 @@ export async function scanListeningPorts({ log } = {}) {
         execScan('netstat', ['-ano', '-p', 'UDP']),
       ])
       return {
-        tcp: parseWindowsNetstat(tcpOut, 'TCP'),
-        udp: parseWindowsNetstat(udpOut, 'UDP'),
+        tcp: parseWindowsNetstatOutput(tcpOut, 'TCP'),
+        udp: parseWindowsNetstatOutput(udpOut, 'UDP'),
       }
     }
 
@@ -125,10 +139,10 @@ export async function scanListeningPorts({ log } = {}) {
         execScan('ss', ['-H', '-ltn']),
         execScan('ss', ['-H', '-lun']),
       ])
-      return { tcp: parseSs(tcpOut, 'tcp'), udp: parseSs(udpOut, 'udp') }
+      return { tcp: parseSsOutput(tcpOut, 'tcp'), udp: parseSsOutput(udpOut, 'udp') }
     } catch {
       const output = await execScan('netstat', ['-lntu'])
-      return parseUnixNetstat(output)
+      return parseUnixNetstatOutput(output)
     }
   } catch (error) {
     log?.warn?.(`端口扫描失败: ${error.message}`)

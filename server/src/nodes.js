@@ -14,14 +14,25 @@ function assertPortInRange(port, min, max, label) {
   }
 }
 
+function normalizeDeviceId(raw) {
+  const id = typeof raw === 'string' ? raw.trim() : ''
+  if (id.length === 0 || id.length > 64) {
+    throw new HttpError(400, '设备名称长度必须在 1 ~ 64 个字符之间')
+  }
+  if (id.startsWith('.') || id.endsWith('.') || id.includes('..')) {
+    throw new HttpError(400, '设备名称不能以点开头/结尾，或包含连续的点')
+  }
+  if (/[\\/\x00-\x1f\x7f<>:"|?*#%]/.test(id)) {
+    throw new HttpError(400, '设备名称包含非法字符（路径分隔符、引号、控制字符或 URL 保留符号）')
+  }
+  return id
+}
+
 function normalizeNodeInput(input, config) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new HttpError(400, '请求体必须是 JSON 对象')
   }
-  const id = typeof input.id === 'string' ? input.id.trim() : ''
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/.test(id)) {
-    throw new HttpError(400, '设备名称只能包含字母、数字、下划线、短横线，且不超过 32 个字符')
-  }
+  const id = normalizeDeviceId(input.id)
 
   const streamType = input.streamType === undefined ? 'ffmpeg' : input.streamType
   if (streamType !== 'ffmpeg' && streamType !== 'mjpeg') {

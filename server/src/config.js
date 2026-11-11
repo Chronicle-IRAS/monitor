@@ -36,6 +36,11 @@ export function loadConfig(env = process.env) {
     ffmpegPath: stringFromEnv(env, 'FFMPEG_PATH', 'ffmpeg'),
     recordDir: pathFromEnv(env, 'RECORD_DIR', path.join(serverRoot, 'records')),
     dataDir: pathFromEnv(env, 'DATA_DIR', path.join(serverRoot, 'data')),
+    diskPath: pathFromEnv(
+      env,
+      'DISK_PATH',
+      process.platform === 'win32' ? path.parse(serverRoot).root : '/',
+    ),
     recordPoolMb: intFromEnv(env, 'RECORD_POOL_MB', 15 * 1024, { min: 1, max: 1024 * 1024 }),
     segmentSeconds: intFromEnv(env, 'SEGMENT_SECONDS', 300, { min: 5, max: 86400 }),
     udpPortMin: intFromEnv(env, 'UDP_PORT_MIN', 9001, { min: 1, max: 65535 }),

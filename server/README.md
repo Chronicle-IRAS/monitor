@@ -79,6 +79,8 @@ server/
 | DELETE | `/records/:deviceId/:filename` | 删除单个切片 |
 | POST | `/records/batch-delete` | body `{ deviceId, filenames: string[] }`（1~500 个） |
 
+设备名称（`id`）支持中文、空格与常见符号（前端仅要求必填），但会拒绝路径分隔符、控制字符及 `#%?*:"<>|` 等 URL/文件系统保留字符，长度 1~64 个字符。
+
 `/system/status` 字段：`cpuUsage`、`memUsage`、`memTotal`、`uptime`（小时）、`recordUsageMB`、`recordPercent`、`diskUsage`、`diskTotal`、`onlineNodes`。
 
 ### 视频流端点（每个节点独立端口，非 3000）
@@ -100,6 +102,7 @@ server/
 | `FFMPEG_PATH` | `ffmpeg` | ffmpeg 可执行文件 |
 | `RECORD_DIR` | `server/records` | 录像根目录 |
 | `DATA_DIR` | `server/data` | 节点状态目录 |
+| `DISK_PATH` | `/`（Windows 为盘符根） | “服务器根磁盘”指标统计的分区 |
 | `RECORD_POOL_MB` | `15360` | 录像池上限（15GB） |
 | `SEGMENT_SECONDS` | `300` | 单个 MP4 切片时长 |
 | `UDP_PORT_MIN` / `UDP_PORT_MAX` | `9001` / `9050` | 允许的硬件通讯端口 |

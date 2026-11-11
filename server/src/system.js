@@ -47,13 +47,14 @@ export class SystemMetrics {
     this.config = config
     this.recordStore = recordStore
     this.lastCpu = cpuSnapshot()
-    this.diskPath = config.recordDir
+    this.diskPath = config.diskPath
   }
 
   async collect(onlineNodes) {
     const cpuUsage = this.#cpuUsage()
     const memory = await memoryInfo()
-    const disk = await diskInfo(this.diskPath)
+    const disk =
+      (await diskInfo(this.diskPath)) ?? (await diskInfo(this.config.recordDir))
     const recordBytes = await this.recordStore.usageBytes()
     const poolBytes = this.config.recordPoolMb * 1024 * 1024
 
