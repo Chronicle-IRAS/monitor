@@ -30,6 +30,18 @@
 
 本项目是实验室 ESP32 摄像头集群的监控前端，用于在浏览器中集中查看各节点的实时画面、回放历史录像、管理设备端口与节点启停，并由管理员维护系统配置。后端 API 与视频流服务需单独部署，前端通过环境变量指定其地址。
 
+## 后端服务
+
+配套后端位于 `server/`（Node.js + ffmpeg，零 npm 依赖），提供前端所需的全部 API、WebSocket H.264 / MJPEG 视频分发、15GB 录像池与节点看门狗。详细接口与配置见 [`server/README.md`](server/README.md)。
+
+```sh
+cd server
+npm test          # 单元 + 端到端测试（伪 ffmpeg，无需真实硬件）
+npm start         # 默认 http://0.0.0.0:3000/api
+```
+
+启动节点前请确认服务器已安装 `ffmpeg`，且硬件向 `UDP_PORT_MIN~UDP_PORT_MAX`（默认 9001–9050）推流；每个节点的视频流监听在 `HTTP_PORT_MIN~HTTP_PORT_MAX`（默认 9051–9100）。
+
 ## 前置条件
 
 - Node.js `^20.19.0` 或 `>=22.12.0`（见 `package.json` 的 `engines` 字段）
@@ -83,8 +95,10 @@ npm run preview
 ## 其他命令
 
 ```sh
-npm run lint     # 代码检查（Oxlint + ESLint，自动修复）
-npm run format   # 使用 Prettier 格式化 src/
+npm run lint        # 代码检查（Oxlint + ESLint，自动修复）
+npm run format      # 使用 Prettier 格式化 src/
+npm run server      # 启动 server/ 后端
+npm run test:server # 运行后端测试
 ```
 
 ## 项目结构
@@ -104,6 +118,11 @@ npm run format   # 使用 Prettier 格式化 src/
 │   ├── App.vue          # 根组件（布局、主题、权限）
 │   ├── config.ts        # 全局运行时配置
 │   └── main.ts          # 入口文件
+├── server/              # 配套后端（Node.js + ffmpeg，零依赖）
+│   ├── src/             # API、节点管理、流分发、录像池、指标
+│   ├── test/            # 单元测试 + 端到端测试
+│   ├── deploy/          # systemd 服务示例
+│   └── README.md        # 后端接口与部署说明
 ├── deploy.bat           # Windows 一键部署脚本
 ├── vite.config.ts       # Vite 配置
 └── tsconfig.json        # TypeScript 配置
@@ -125,6 +144,8 @@ deploy.bat
 4. 替换 `/var/www/monitor-pro/` 下的线上文件并设置权限
 
 > 脚本以 `root` 用户通过 SSH/SCP 连接服务器，请提前配置好 SSH 访问。
+
+后端不随该脚本发布，需单独部署（systemd 示例与目录权限见 [`server/README.md`](server/README.md)）。前端与后端可同机或分机部署，只需保证 `VITE_API_BASE` 与 `VITE_STREAM_HOST` 指向后端所在主机。
 
 ## 推荐 IDE
 

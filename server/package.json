@@ -1,0 +1,16 @@
+{
+  "name": "monitor-pro-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "实验室监控中心后端：ESP32 UDP 拉流、H.264/MJPEG 分发、录像池与系统指标",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test test/media.test.js test/records.test.js test/api.test.js"
+  }
+}

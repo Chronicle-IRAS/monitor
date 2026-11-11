@@ -49,3 +49,7 @@ __screenshots__/
 .env.*
 !.env.example
 !.env.production.example
+
+# Backend runtime data
+server/records/
+server/data/

@@ -1,0 +1,19 @@
+[Unit]
+Description=Monitor Pro backend (ESP32 camera cluster)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=monitor
+Group=monitor
+WorkingDirectory=/opt/monitor-pro/server
+EnvironmentFile=/etc/monitor-pro.env
+ExecStart=/usr/bin/node /opt/monitor-pro/server/src/index.js
+Restart=always
+RestartSec=3
+# ffmpeg 子进程需要能绑定 9001-9100
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
