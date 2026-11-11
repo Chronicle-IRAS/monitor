@@ -1,4 +1,5 @@
 const DEFAULT_MAX_BUFFER = 4 * 1024 * 1024
+const JPEG_SOI = Buffer.from([0xff, 0xd8])
 
 function findStartCode(buffer, from) {
   for (let i = from; i + 2 < buffer.length; i++) {
@@ -120,7 +121,7 @@ export class JpegFramer {
     const frames = []
 
     while (true) {
-      const start = this.buffer.indexOf(Buffer.from([0xff, 0xd8]))
+      const start = this.buffer.indexOf(JPEG_SOI)
       if (start === -1) {
         if (this.buffer.length > 2) this.buffer = this.buffer.subarray(this.buffer.length - 1)
         break

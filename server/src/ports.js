@@ -5,6 +5,11 @@ import dgram from 'node:dgram'
 
 const execFileAsync = promisify(execFile)
 const SCAN_TIMEOUT_MS = 5000
+const SCAN_TTL_MS = 2000
+
+let scanCache = { at: 0, value: null, generation: 0 }
+let scanInFlight = null
+let scanGeneration = 0
 
 function parsePort(local) {
   if (typeof local !== 'string') return null
@@ -117,11 +122,7 @@ async function execScan(command, args, options = {}) {
   return stdout
 }
 
-/**
- * 物理扫描当前主机的监听端口。
- * Linux 优先 ss，其次 netstat；Windows 使用 netstat。
- */
-export async function scanListeningPorts({ log } = {}) {
+async function scanOnce(log) {
   try {
     if (process.platform === 'win32') {
       const [tcpOut, udpOut] = await Promise.all([
@@ -146,6 +147,43 @@ export async function scanListeningPorts({ log } = {}) {
     }
   } catch (error) {
     log?.warn?.(`端口扫描失败: ${error.message}`)
-    return { tcp: [], udp: [] }
+    return null
   }
+}
+
+/** 节点启停后调用，避免复用 1~2 秒前的旧扫描结果。 */
+export function invalidatePortScanCache() {
+  scanGeneration += 1
+  scanCache = { at: 0, value: null, generation: scanGeneration }
+}
+
+/**
+ * 物理扫描当前主机的监听端口（2 秒 TTL + 并发请求合并）。
+ * Linux 优先 ss，其次 netstat；Windows 使用 netstat。
+ */
+export async function scanListeningPorts({ log } = {}) {
+  const now = Date.now()
+  if (
+    scanCache.value &&
+    scanCache.generation === scanGeneration &&
+    now - scanCache.at < SCAN_TTL_MS
+  ) {
+    return scanCache.value
+  }
+  if (scanInFlight) return scanInFlight
+
+  const generation = scanGeneration
+  const task = (async () => {
+    const result = await scanOnce(log)
+    if (!result) return { tcp: [], udp: [] }
+    if (generation === scanGeneration) {
+      scanCache = { at: Date.now(), value: result, generation }
+    }
+    return result
+  })()
+
+  scanInFlight = task.finally(() => {
+    scanInFlight = null
+  })
+  return scanInFlight
 }

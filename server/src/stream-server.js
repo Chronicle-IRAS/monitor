@@ -174,10 +174,12 @@ export class StreamServer {
   #writeFrame(res, jpeg) {
     if (res.destroyed || res.writableEnded) return
     if (res.writableLength > MAX_MJPEG_BACKLOG) return
+    res.cork()
     res.write(
       `--${MJPEG_BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpeg.length}\r\n\r\n`,
     )
     res.write(jpeg)
     res.write('\r\n')
+    res.uncork()
   }
 }

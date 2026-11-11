@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import { HttpError } from './util.js'
 import { Pipeline } from './pipeline.js'
 import { StreamServer } from './stream-server.js'
-import { probeTcp, probeUdp } from './ports.js'
+import { invalidatePortScanCache, probeTcp, probeUdp } from './ports.js'
 
 const TICK_MS = 5000
 const MAX_RESTART_DELAY_MS = 30_000
@@ -155,6 +155,7 @@ export class NodeManager {
     record.server = server
     record.startedAt = Date.now()
     this.nodes.set(record.id, record)
+    invalidatePortScanCache()
     await this.#save()
     this.log.info(`节点 ${record.id} 已启动 (udp=${record.udp}, http=${record.http})`)
     return this.#publicNode(record)
@@ -172,6 +173,7 @@ export class NodeManager {
     }
     if (record.pipeline) await record.pipeline.stop()
     if (record.server) await record.server.close()
+    invalidatePortScanCache()
     await this.#save()
     this.log.info(`节点 ${id} 已停止`)
     return { id, stopped: true }

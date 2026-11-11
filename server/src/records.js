@@ -23,63 +23,25 @@ export class RecordStore {
   }
 
   async tree() {
-    let dirents = []
-    try {
-      dirents = await fs.readdir(this.root, { withFileTypes: true })
-    } catch (error) {
-      if (error.code === 'ENOENT') return []
-      throw error
-    }
-
-    const devices = []
-    for (const dirent of dirents) {
-      if (!dirent.isDirectory() || dirent.name.startsWith('.')) continue
-      const directory = path.join(this.root, dirent.name)
-      let entries = []
-      try {
-        entries = await fs.readdir(directory, { withFileTypes: true })
-      } catch {
-        continue
-      }
-
-      const files = []
-      for (const entry of entries) {
-        if (!entry.isFile() || entry.name.startsWith('.')) continue
-        try {
-          const stats = await fs.stat(path.join(directory, entry.name))
-          files.push({
-            filename: entry.name,
-            size: formatRecordSize(stats.size),
-            time: formatLocalTime(stats.mtime),
-            mtimeMs: stats.mtimeMs,
-          })
-        } catch {
-          // 统计期间文件被删除，跳过
-        }
-      }
-      files.sort((a, b) => b.mtimeMs - a.mtimeMs)
-      devices.push({
-        deviceId: dirent.name,
-        files: files.map(({ filename, size, time }) => ({ filename, size, time })),
-      })
-    }
-
-    devices.sort((a, b) => a.deviceId.localeCompare(b.deviceId))
+    const devices = await this.#scanDevices()
     return devices
+      .map(({ deviceId, files }) => ({
+        deviceId,
+        files: files
+          .sort((a, b) => b.mtimeMs - a.mtimeMs)
+          .map((file) => ({
+            filename: file.filename,
+            size: formatRecordSize(file.size),
+            time: formatLocalTime(new Date(file.mtimeMs)),
+          })),
+      }))
+      .sort((a, b) => a.deviceId.localeCompare(b.deviceId))
   }
 
   async usageBytes() {
     let total = 0
-    const dirents = await fs.readdir(this.root, { withFileTypes: true }).catch(() => [])
-    for (const device of dirents) {
-      if (!device.isDirectory() || device.name.startsWith('.')) continue
-      const directory = path.join(this.root, device.name)
-      const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => [])
-      for (const entry of entries) {
-        if (!entry.isFile() || entry.name.startsWith('.')) continue
-        const stats = await fs.stat(path.join(directory, entry.name)).catch(() => null)
-        if (stats) total += stats.size
-      }
+    for (const device of await this.#scanDevices()) {
+      for (const file of device.files) total += file.size
     }
     return total
   }
@@ -131,23 +93,8 @@ export class RecordStore {
    * protectMs 用于保护正在写入的当前分段（其 mtime 持续更新）。
    */
   async enforcePool({ protectMs = 0, now = Date.now() } = {}) {
-    const files = []
-    let total = 0
-    const dirents = await fs.readdir(this.root, { withFileTypes: true }).catch(() => [])
-    for (const device of dirents) {
-      if (!device.isDirectory() || device.name.startsWith('.')) continue
-      const directory = path.join(this.root, device.name)
-      const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => [])
-      for (const entry of entries) {
-        if (!entry.isFile() || entry.name.startsWith('.')) continue
-        const target = path.join(directory, entry.name)
-        const stats = await fs.stat(target).catch(() => null)
-        if (!stats) continue
-        files.push({ path: target, size: stats.size, mtimeMs: stats.mtimeMs })
-        total += stats.size
-      }
-    }
-
+    const files = (await this.#scanDevices()).flatMap((device) => device.files)
+    let total = files.reduce((sum, file) => sum + file.size, 0)
     if (total <= this.poolBytes) return { removed: 0, freedBytes: 0 }
 
     files.sort((a, b) => a.mtimeMs - b.mtimeMs)
@@ -170,5 +117,48 @@ export class RecordStore {
       this.log?.info?.(`录像池清理：删除 ${removed} 个旧切片，释放 ${formatRecordSize(freedBytes)}`)
     }
     return { removed, freedBytes }
+  }
+
+  /**
+   * 单次遍历录像池，并发 stat 每个文件；tree/usage/enforcePool 共用，避免重复 walk。
+   */
+  async #scanDevices() {
+    let dirents = []
+    try {
+      dirents = await fs.readdir(this.root, { withFileTypes: true })
+    } catch (error) {
+      if (error.code === 'ENOENT') return []
+      throw error
+    }
+
+    const directories = dirents.filter(
+      (dirent) => dirent.isDirectory() && !dirent.name.startsWith('.'),
+    )
+
+    return Promise.all(
+      directories.map(async (dirent) => {
+        const directory = path.join(this.root, dirent.name)
+        const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => [])
+        const candidates = entries.filter(
+          (entry) => entry.isFile() && !entry.name.startsWith('.'),
+        )
+        const files = (
+          await Promise.all(
+            candidates.map(async (entry) => {
+              const target = path.join(directory, entry.name)
+              const stats = await fs.stat(target).catch(() => null)
+              if (!stats) return null
+              return {
+                filename: entry.name,
+                path: target,
+                size: stats.size,
+                mtimeMs: stats.mtimeMs,
+              }
+            }),
+          )
+        ).filter(Boolean)
+        return { deviceId: dirent.name, files }
+      }),
+    )
   }
 }

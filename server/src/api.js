@@ -163,16 +163,18 @@ export function createApiHandler({ config, nodes, records, metrics, log }) {
         const isRegistered = (port) =>
           port !== null && active.some((node) => node.udp === port || node.http === port)
 
-        const scan = await scanListeningPorts({ log })
+        const [scan, udpFree, httpFree] = await Promise.all([
+          scanListeningPorts({ log }),
+          udpPort !== null ? probeUdp(udpPort) : true,
+          tcpPort !== null ? probeTcp(tcpPort) : true,
+        ])
 
-        let udpUsed = false
-        if (udpPort !== null) {
-          udpUsed = isRegistered(udpPort) || scan.udp.includes(udpPort) || !(await probeUdp(udpPort))
-        }
-        let httpUsed = false
-        if (tcpPort !== null) {
-          httpUsed = isRegistered(tcpPort) || scan.tcp.includes(tcpPort) || !(await probeTcp(tcpPort))
-        }
+        const udpUsed =
+          udpPort !== null &&
+          (isRegistered(udpPort) || scan.udp.includes(udpPort) || udpFree === false)
+        const httpUsed =
+          tcpPort !== null &&
+          (isRegistered(tcpPort) || scan.tcp.includes(tcpPort) || httpFree === false)
         json(res, 200, { udpUsed, httpUsed })
         return
       }

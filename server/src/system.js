@@ -52,10 +52,11 @@ export class SystemMetrics {
 
   async collect(onlineNodes) {
     const cpuUsage = this.#cpuUsage()
-    const memory = await memoryInfo()
-    const disk =
-      (await diskInfo(this.diskPath)) ?? (await diskInfo(this.config.recordDir))
-    const recordBytes = await this.recordStore.usageBytes()
+    const [memory, disk, recordBytes] = await Promise.all([
+      memoryInfo(),
+      diskInfo(this.diskPath).then((value) => value ?? diskInfo(this.config.recordDir)),
+      this.recordStore.usageBytes(),
+    ])
     const poolBytes = this.config.recordPoolMb * 1024 * 1024
 
     const memUsage = memory.total > 0 ? ((memory.total - memory.free) / memory.total) * 100 : 0

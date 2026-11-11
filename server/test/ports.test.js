@@ -1,10 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import net from 'node:net'
 import {
+  invalidatePortScanCache,
   parseSsOutput,
   parseUnixNetstatOutput,
   parseWindowsNetstatOutput,
+  scanListeningPorts,
 } from '../src/ports.js'
+
+const silentLog = { warn() {} }
 
 test('ss 解析：无 Netid 列的常规输出', () => {
   const tcp = parseSsOutput(
@@ -44,6 +49,25 @@ test('netstat 解析：Linux 监听端口', () => {
   )
   assert.deepEqual(result.tcp, [22])
   assert.deepEqual(result.udp, [9001])
+})
+
+test('端口扫描缓存：TTL 内复用结果，主动失效后重新扫描', async () => {
+  invalidatePortScanCache()
+  const first = await scanListeningPorts({ log: silentLog })
+  const second = await scanListeningPorts({ log: silentLog })
+  assert.equal(second, first)
+
+  const server = net.createServer()
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address()
+  try {
+    assert.equal(await scanListeningPorts({ log: silentLog }), first)
+    invalidatePortScanCache()
+    const fresh = await scanListeningPorts({ log: silentLog })
+    assert.ok(fresh.tcp.includes(port), `重新扫描应包含新监听端口 ${port}`)
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+  }
 })
 
 test('netstat 解析：Windows 监听行（含非英文状态兜底）', () => {
