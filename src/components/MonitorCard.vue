@@ -2,7 +2,7 @@
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 // @ts-ignore
 import JMuxer from 'jmuxer'
-import { Delete, Close, FullScreen, VideoCamera } from '@element-plus/icons-vue'
+import { Delete, Close, FullScreen, Loading, VideoPause } from '@element-plus/icons-vue'
 import { streamHttpUrl } from '@/config'
 
 const props = defineProps<{
@@ -14,6 +14,7 @@ const props = defineProps<{
     isRecord?: boolean
   }
   canManage?: boolean
+  stopping?: boolean
   streamUrl: string
 }>()
 
@@ -76,7 +77,7 @@ const openPreview = async () => {
 }
 
 const closePreview = async () => {
-  if (!isExpanded.value || closing) return
+  if (!isExpanded.value || closing || props.stopping) return
   closing = true
   transition?.cancel()
   if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -119,6 +120,11 @@ const onPreviewKeydown = (event: KeyboardEvent) => {
       first?.focus()
     }
   }
+}
+
+const requestStop = () => {
+  if (props.stopping) return
+  emit('close', props.node.id)
 }
 
 const connect = () => {
@@ -202,7 +208,7 @@ onUnmounted(() => {
               <el-icon><Close /></el-icon>
             </button>
           </header>
-          <div class="video-stage">
+          <div class="video-stage" :aria-busy="phase !== 'playing'">
             <img
               v-if="node.streamType === 'mjpeg' || node.streamType === 'jpeg-udp'"
               :src="streamHttpUrl(node.http, '/mjpeg')"
@@ -222,10 +228,28 @@ onUnmounted(() => {
               @waiting="phase = 'waiting'"
               @error="phase = 'waiting'"
             ></video>
-            <div v-if="phase !== 'playing'" class="signal-placeholder">
-              <el-icon><VideoCamera /></el-icon><span>{{ phaseLabel }}</span>
-              <small v-if="isExpanded">收到设备画面后将自动播放</small>
-            </div>
+            <Transition name="signal-fade">
+              <div
+                v-if="phase !== 'playing'"
+                class="signal-placeholder"
+                role="status"
+                aria-live="polite"
+              >
+                <span class="signal-spinner" :class="phase" aria-hidden="true"></span>
+                <span class="signal-label">
+                  <span>{{ phaseLabel }}</span>
+                  <span class="signal-dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span>
+                </span>
+                <small v-if="isExpanded">正在建立视频连接，收到画面后自动播放</small>
+              </div>
+            </Transition>
+            <Transition name="signal-fade">
+              <div v-if="stopping" class="stopping-overlay" role="status" aria-live="assertive">
+                <span class="signal-spinner waiting" aria-hidden="true"></span>
+                <strong>正在停止节点…</strong>
+                <small>正在关闭视频流与录制，请稍候</small>
+              </div>
+            </Transition>
             <div class="stream-badges">
               <span class="stream-badge">{{
                 node.streamType === 'ffmpeg' ? 'H.264' : 'MJPEG'
@@ -246,8 +270,14 @@ onUnmounted(() => {
           <footer class="preview-footer">
             <div class="node-summary">
               <strong v-if="!isExpanded">{{ node.id }}</strong>
-              <span class="connection-status" :class="{ live: phase === 'playing' }"
-                ><i></i>{{ phaseLabel }}</span
+              <span
+                class="connection-status"
+                :class="{
+                  live: phase === 'playing' && !stopping,
+                  waiting: phase === 'waiting',
+                  stopping,
+                }"
+                ><i></i>{{ stopping ? '正在停止' : phaseLabel }}</span
               >
             </div>
             <div v-if="isExpanded" class="node-details">
@@ -261,13 +291,57 @@ onUnmounted(() => {
             <el-popconfirm
               v-if="isExpanded && canManage"
               title="确定停止该节点的视频与录制？"
-              @confirm="emit('close', node.id)"
+              width="240"
+              confirm-button-text="停止"
+              cancel-button-text="取消"
+              popper-class="stop-node-popconfirm"
+              @confirm="requestStop"
             >
               <template #reference
-                ><el-button type="danger" text :icon="Delete">停止节点</el-button></template
+                ><el-button
+                  type="danger"
+                  text
+                  :icon="Delete"
+                  :loading="stopping"
+                  :disabled="stopping"
+                  >{{ stopping ? '正在停止' : '停止节点' }}</el-button
+                ></template
               >
             </el-popconfirm>
-            <el-icon v-if="!isExpanded" class="expand-icon"><FullScreen /></el-icon>
+            <div v-if="!isExpanded" class="card-action-group">
+              <el-popconfirm
+                v-if="canManage"
+                title="确定停止该节点？录像文件不会被删除。"
+                width="230"
+                confirm-button-text="停止"
+                cancel-button-text="取消"
+                popper-class="card-stop-popconfirm"
+                @confirm="requestStop"
+              >
+                <template #reference>
+                  <button
+                    type="button"
+                    class="card-stop-button"
+                    :disabled="stopping"
+                    :aria-label="'停止节点 ' + node.id"
+                    title="停止该节点（录像保留）"
+                  >
+                    <el-icon v-if="stopping" class="is-loading"><Loading /></el-icon>
+                    <el-icon v-else><VideoPause /></el-icon>
+                    <span>{{ stopping ? '停止中' : '停止' }}</span>
+                  </button>
+                </template>
+              </el-popconfirm>
+              <button
+                type="button"
+                class="expand-button"
+                :aria-label="'放大预览 ' + node.id"
+                title="放大预览"
+                @click="openPreview"
+              >
+                <el-icon><FullScreen /></el-icon>
+              </button>
+            </div>
           </footer>
         </section>
       </div>
@@ -310,6 +384,7 @@ onUnmounted(() => {
 .signal-placeholder {
   position: absolute;
   inset: 0;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -317,23 +392,133 @@ onUnmounted(() => {
   gap: 14px;
   color: #8291a5;
   pointer-events: none;
-  background: radial-gradient(ellipse at center, #19253688, transparent 70%);
+  background: #0b1018;
 }
-.signal-placeholder .el-icon {
-  font-size: 32px;
-  opacity: 0.6;
+.signal-spinner {
+  width: 36px;
+  height: 36px;
+  border: 2px solid #ffffff1a;
+  border-top-color: #6aa8ff;
+  border-radius: 50%;
+  animation: signal-spin 0.9s linear infinite;
+  box-shadow: 0 0 24px #6aa8ff33;
 }
-.signal-placeholder span {
+.signal-spinner::after {
+  content: '';
+  display: block;
+  width: 8px;
+  height: 8px;
+  margin: 12px;
+  border-radius: 50%;
+  background: #6aa8ff;
+  opacity: 0.65;
+  animation: signal-blink 1.6s ease-in-out infinite;
+}
+.signal-spinner.waiting {
+  border-top-color: #e5b567;
+  animation-duration: 1.5s;
+  box-shadow: 0 0 24px #e5b56733;
+}
+.signal-spinner.waiting::after {
+  background: #e5b567;
+}
+.signal-label {
+  display: inline-flex;
+  align-items: baseline;
   font-size: 13px;
+  letter-spacing: 0.02em;
+}
+.signal-dots {
+  display: inline-flex;
+  margin-left: 2px;
+}
+.signal-dots i {
+  font-style: normal;
+  animation: signal-dot 1.4s ease-in-out infinite;
+}
+.signal-dots i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.signal-dots i:nth-child(3) {
+  animation-delay: 0.32s;
 }
 .signal-placeholder small {
   color: #65758b;
   font-size: 12px;
 }
+.signal-fade-enter-active,
+.signal-fade-leave-active {
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease;
+}
+.signal-fade-enter-from,
+.signal-fade-leave-to {
+  opacity: 0;
+  transform: scale(0.985);
+}
+.stopping-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #f3f7fd;
+  text-align: center;
+  background: #0b1018;
+  cursor: progress;
+}
+.stopping-overlay strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.stopping-overlay small {
+  color: #9fb0c5;
+  font-size: 12px;
+}
+@keyframes signal-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes signal-blink {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+}
+@keyframes signal-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
 .stream-badges {
   position: absolute;
   top: 16px;
   left: 16px;
+  z-index: 4;
   display: flex;
   gap: 8px;
   pointer-events: none;
@@ -429,9 +614,77 @@ onUnmounted(() => {
 .connection-status.live {
   color: #39b887;
 }
-.expand-icon {
+.connection-status.waiting {
+  color: #d7a85a;
+}
+.connection-status.stopping {
+  color: #e5b567;
+}
+.connection-status:not(.live) i {
+  animation: status-pulse 1.5s ease-in-out infinite;
+}
+.card-action-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-left: auto;
+}
+.card-stop-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
   color: var(--el-text-color-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    color 160ms,
+    background 160ms,
+    border-color 160ms;
+}
+.card-stop-button:hover:not(:disabled) {
+  color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
+  border-color: var(--el-color-danger-light-7);
+}
+.card-stop-button:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+.card-stop-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.card-action-group .expand-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  font-size: 15px;
+  cursor: pointer;
+  transition:
+    color 160ms,
+    background 160ms,
+    border-color 160ms;
+}
+.card-action-group .expand-button:hover {
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  border-color: var(--el-color-primary-light-7);
+}
+.card-action-group .expand-button:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
 }
 .preview-layer {
   position: fixed;
@@ -548,5 +801,12 @@ onUnmounted(() => {
     transition: none !important;
     animation: none !important;
   }
+}
+</style>
+
+<style>
+/* 预览层 z-index 为 2100，确认气泡必须在其上，否则按钮被遮挡、看起来“没有反应”。 */
+.stop-node-popconfirm {
+  z-index: 2200 !important;
 }
 </style>
