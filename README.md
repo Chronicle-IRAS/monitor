@@ -6,7 +6,7 @@
 
 | 模块 | 说明 |
 |------|------|
-| **实时预览** | 多路 ESP32 摄像头 MJPEG/WebSocket 流实时播放，支持 jmuxer 解码 |
+| **实时预览** | 多路 ESP32 摄像头 MJPEG/WebSocket 流实时播放，支持 jmuxer 解码与 CAM-WEB JPEG/UDP 分片直出 |
 | **历史录像** | 录像文件列表查询与回放 |
 | **通讯终端** | 设备端口状态查看、节点启停管理 |
 | **系统配置** | 管理员专属的系统参数与设备调度配置 |
@@ -32,7 +32,7 @@
 
 ## 后端服务
 
-配套后端位于 `server/`（Node.js + ffmpeg，零 npm 依赖），提供前端所需的全部 API、WebSocket H.264 / MJPEG 视频分发、3GB 录像池与节点看门狗。详细接口与配置见 [`server/README.md`](server/README.md)。
+配套后端位于 `server/`（Node.js + ffmpeg，零 npm 依赖），提供前端所需的全部 API、WebSocket H.264 / MJPEG 视频分发、CAM-WEB JPEG/UDP 协议重组、3GB 录像池与节点看门狗。详细接口与配置见 [`server/README.md`](server/README.md)，硬件协议与配置核对见 [`ops/HARDWARE-CONFIG.md`](ops/HARDWARE-CONFIG.md)。
 
 ```sh
 cd server
@@ -40,7 +40,7 @@ npm test          # 单元 + 端到端测试（伪 ffmpeg，无需真实硬件�
 npm start         # 默认 http://0.0.0.0:3000/api
 ```
 
-启动节点前请确认服务器已安装 `ffmpeg`，且硬件向 `UDP_PORT_MIN~UDP_PORT_MAX`（默认 9001–9050）推流；每个节点的视频流监听在 `HTTP_PORT_MIN~HTTP_PORT_MAX`（默认 9051–9100）。
+启动节点前请确认服务器已安装 `ffmpeg`，且硬件向 `UDP_PORT_MIN~UDP_PORT_MAX`（默认 9001–9050）推流；每个节点的视频流监听在 `HTTP_PORT_MIN~HTTP_PORT_MAX`（默认 9051–9100）。CAM-WEB 固件使用自定义 JPEG/UDP 分片时，节点推流模式选择 `jpeg-udp`。
 
 ## 前置条件
 

@@ -10,7 +10,7 @@ const props = defineProps<{
     id: string
     udp: number
     http: number
-    streamType?: 'ffmpeg' | 'mjpeg'
+    streamType?: 'ffmpeg' | 'mjpeg' | 'jpeg-udp'
     isRecord?: boolean
   }
   canManage?: boolean
@@ -147,7 +147,7 @@ const connect = () => {
 }
 
 onMounted(() => {
-  if (props.node.streamType === 'mjpeg') return
+  if (props.node.streamType === 'mjpeg' || props.node.streamType === 'jpeg-udp') return
   if (!videoRef.value) return
 
   jmuxer = new JMuxer({
@@ -204,7 +204,7 @@ onUnmounted(() => {
           </header>
           <div class="video-stage">
             <img
-              v-if="node.streamType === 'mjpeg'"
+              v-if="node.streamType === 'mjpeg' || node.streamType === 'jpeg-udp'"
               :src="streamHttpUrl(node.http, '/mjpeg')"
               class="video-player"
               alt="MJPEG 实时画面"
@@ -228,7 +228,7 @@ onUnmounted(() => {
             </div>
             <div class="stream-badges">
               <span class="stream-badge">{{
-                node.streamType === 'mjpeg' ? 'MJPEG' : 'H.264'
+                node.streamType === 'ffmpeg' ? 'H.264' : 'MJPEG'
               }}</span>
               <span v-if="node.isRecord" class="record-badge"><i></i> REC</span>
             </div>

@@ -9,6 +9,11 @@ export interface DeviceNode {
   id: string
   udp: number
   http: number
+  streamType?: 'ffmpeg' | 'mjpeg' | 'jpeg-udp'
+  isRecord?: boolean
+  status?: string
+  receiving?: boolean
+  rxFrames?: number
 }
 
 export const useDeviceStore = defineStore('device', {

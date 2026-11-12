@@ -1,5 +1,58 @@
 # Monitor production deployment
 
+## JPEG/UDP compatibility release 20261112-05 — prepared, not deployed
+
+Scope: backend JPEG/UDP receiver for CAM-WEB (`streamType=jpeg-udp`), frontend mode selector/preview, hardware configuration checklist. H.264 (`ffmpeg`) and existing MJPEG (`mjpeg`) paths are unchanged; no API path, node field, or recording endpoint was removed.
+
+Verification completed locally:
+
+- `npm run test:server` passes 32 tests, including 14 hardware-format tests using 4-byte big-endian offsets, 1400-byte fragments, `0xFFFFFFFF` end markers, real UDP sockets, reordering, duplicates, missing head/middle/tail fragments, lost EOF, timeout cleanup, persistence/restore, `/mjpeg` byte-exact delivery and lazy ffmpeg recording.
+- `npm run build` passes type checking and the production build.
+- No standard H.264 or generic MJPEG stream was used to stand in for the hardware protocol tests.
+- Real system FFmpeg 8.1 end-to-end: 37 hardware-format frames (4.1 KB JPEG, 1400-byte fragments) produced a 3.8 s, 320×240 H.264 MP4 (10 fps) that `ffprobe` reads and `ffmpeg -frames:v 1` decodes; `/mjpeg` returned the sent JPEG byte-for-byte.
+- Headless Chromium against a local same-origin proxy: the node card rendered the MJPEG image at 320×240, the badge read `MJPEG`, and the add-node dialog exposed `ESP32 硬件 JPEG (UDP 分片)`.
+- No physical ESP32 was attached to this workstation; hardware integration remains unverified.
+
+Deployment status: **blocked**. `root@43.142.120.169` accepts only `publickey`, and none of the private keys available on this workstation are authorized (`Permission denied (publickey)`). No deployment key exists in the repository or local secrets. Therefore this release has not been uploaded, `current` has not been switched, and the backend has not been restarted.
+
+Existing production state is untouched:
+
+- `GET https://monitor.chronicleiras.top/api/health` returns 200 with one node.
+- `GET /` returns 200 behind Basic authentication.
+- The existing node remains `{ id: "1", udp: 9001, http: 9051, streamType: "ffmpeg", isRecord: false, status: "online" }`.
+- No remote file, service, Nginx configuration or environment file was modified during this work.
+
+Deployment runbook when SSH access is restored:
+
+```sh
+npm ci
+npm run test:server
+npm run build
+# archive tracked source at the verified commit plus dist/, write REVISION
+scp -r release-20261112-05 root@43.142.120.169:/srv/apps/monitor/releases/
+ssh root@43.142.120.169 '
+  systemctl stop monitor-health.timer
+  systemctl stop monitor
+  cp -a /srv/apps/monitor/shared/data/nodes.json /var/backups/monitor/nodes-20261112-05.json
+  ln -sfn /srv/apps/monitor/releases/20261112-05 /srv/apps/monitor/current.next
+  mv -Tf /srv/apps/monitor/current.next /srv/apps/monitor/current
+  systemctl start monitor
+  systemctl start monitor-health.timer
+'
+curl -u chronicle https://monitor.chronicleiras.top/api/health
+```
+
+No `/etc/monitor.env` change is required: `UDP_BIND_HOST`, `JPEG_FRAME_TIMEOUT_MS`, `JPEG_SOURCE_IDLE_MS`, `JPEG_MAX_FRAME_BYTES`, `JPEG_RECORD_IDLE_MS` and `JPEG_RECORD_FPS` have working defaults. No Nginx change is required; `/video/<9051-9100>/mjpeg` already routes the new mode. The cloud security group must allow UDP `9001–9050` inbound before hardware can reach the backend.
+
+Rollback: point `current` back to `/srv/apps/monitor/releases/20261112-04` and restart `monitor`. Shared data and `/etc/monitor.env` stay untouched. Existing H.264 nodes do not require migration; `jpeg-udp` nodes only exist after this release is running.
+
+Post-deploy acceptance:
+
+1. Existing node `1` is still listed and does not enter a restart loop.
+2. `/api/health` returns 200 and `systemctl status monitor` is active.
+3. Records API still lists and downloads existing files.
+4. Do not create a `jpeg-udp` node until a real ESP32 is on the network; after creating one, require `rxFrames > 0` and a visible `/mjpeg` image. `status=online` alone is not evidence of video reception.
+
 ## Preview update 20261112-04
 
 Node cards expand into a viewport-level preview with a card-origin animation, full-frame video, connection feedback and node details. The player DOM instance is retained across opening and closing. Escape, backdrop click, close button, focus trapping and focus restoration are supported. Reduced-motion preferences skip the spatial transition. Mobile previews fit the dynamic viewport. Stopping a node requires administrator access and confirmation.
