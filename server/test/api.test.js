@@ -209,12 +209,40 @@ test('ADMIN_TOKEN 启用后写操作与录像读取需要令牌', async (t) => {
   assert.equal(allowed.status, 200)
 
   assert.equal((await fetch(`${base}/records`)).status, 401)
-  assert.equal((await fetch(`${base}/records?token=s3cret`)).status, 200)
+  assert.equal((await fetch(`${base}/records?token=s3cret`)).status, 401)
   assert.equal((await fetch(`${base}/nodes`)).status, 200)
 
   await fs.mkdir(path.join(app.config.recordDir, 'dev1'), { recursive: true })
   await fs.writeFile(path.join(app.config.recordDir, 'dev1', 'v.mp4'), Buffer.from('video'))
-  const download = await fetch(`${base}/records/download/dev1/v.mp4?token=s3cret`)
+  const download = await fetch(`${base}/records/download/dev1/v.mp4`, { headers: { 'x-admin-token': 's3cret' } })
   assert.equal(download.status, 200)
   assert.equal(await download.text(), 'video')
+})
+
+
+test('shutdown preserves nodes and restart restores them', async (t) => {
+  const { app, base } = await createApp(t)
+  const node = { id: 'persistent', udp: await getFreeUdpPort(), http: await getFreeTcpPort(), streamType: 'ffmpeg' }
+  assert.equal((await postJson(`${base}/nodes/start`, node)).status, 200)
+  await app.nodes.shutdown()
+  const saved = JSON.parse(await fs.readFile(app.config.stateFile, 'utf8'))
+  assert.equal(saved[0].id, node.id)
+  await app.nodes.init()
+  assert.equal(app.nodes.list()[0].id, node.id)
+  await app.nodes.reset()
+  assert.deepEqual(JSON.parse(await fs.readFile(app.config.stateFile, 'utf8')), [])
+})
+
+test('server login issues an HttpOnly session usable for downloads and revokes logout', async (t) => {
+  const { base } = await createApp(t, { ADMIN_TOKEN: 'test-secret' })
+  assert.equal((await postJson(`${base}/auth/login`, { password: 'wrong' })).status, 401)
+  const response = await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https' }, body: JSON.stringify({ password: 'test-secret' }) })
+  assert.equal(response.status, 200)
+  const cookie = response.headers.get('set-cookie')
+  assert.match(cookie, /HttpOnly/)
+  assert.match(cookie, /Secure/)
+  const headers = { cookie: cookie.split(';')[0] }
+  assert.equal((await fetch(`${base}/records`, { headers })).status, 200)
+  await fetch(`${base}/auth/logout`, { method: 'POST', headers })
+  assert.equal((await fetch(`${base}/records`, { headers })).status, 401)
 })

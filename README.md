@@ -32,7 +32,7 @@
 
 ## 后端服务
 
-配套后端位于 `server/`（Node.js + ffmpeg，零 npm 依赖），提供前端所需的全部 API、WebSocket H.264 / MJPEG 视频分发、15GB 录像池与节点看门狗。详细接口与配置见 [`server/README.md`](server/README.md)。
+配套后端位于 `server/`（Node.js + ffmpeg，零 npm 依赖），提供前端所需的全部 API、WebSocket H.264 / MJPEG 视频分发、3GB 录像池与节点看门狗。详细接口与配置见 [`server/README.md`](server/README.md)。
 
 ```sh
 cd server
@@ -60,14 +60,8 @@ npm install
 在项目根目录创建 `.env` 文件（亦可使用 `.env.development` / `.env.production` 区分环境；这些文件已被 `.gitignore` 忽略，请勿提交）：
 
 ```env
-# 后端 API 地址
-VITE_API_BASE=http://<YOUR_SERVER_IP>:3000/api
-
-# 视频流主机地址（不含端口）
-VITE_STREAM_HOST=<YOUR_SERVER_IP>
-
-# 管理员密码（可选，仅保存在本地环境文件中）
-VITE_ADMIN_PASSWORD=<YOUR_ADMIN_PASSWORD>
+# 同源 Nginx 代理
+VITE_API_BASE=/api
 ```
 
 > 详细配置参见 `src/config.ts`，所有 API/流地址均收敛于此，避免硬编码散落。
@@ -145,7 +139,7 @@ deploy.bat
 
 > 脚本以 `root` 用户通过 SSH/SCP 连接服务器，请提前配置好 SSH 访问。
 
-后端不随该脚本发布，需单独部署（systemd 示例与目录权限见 [`server/README.md`](server/README.md)）。前端与后端可同机或分机部署，只需保证 `VITE_API_BASE` 与 `VITE_STREAM_HOST` 指向后端所在主机。
+后端不随该脚本发布，需单独部署（systemd 示例与目录权限见 [`server/README.md`](server/README.md)）。生产部署通过同源 HTTPS API 与 WSS 视频代理，配置和回滚步骤见 `ops/DEPLOYMENT.md`。
 
 ## 推荐 IDE
 

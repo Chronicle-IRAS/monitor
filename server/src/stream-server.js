@@ -74,6 +74,10 @@ export class StreamServer {
 
   attachPipeline(pipeline) {
     if (this.pipeline) this.pipeline.off('data', this.onPipelineData)
+    this.splitter = new AnnexBSplitter()
+    this.cache = new H264KeyframeCache()
+    this.framer = new JpegFramer()
+    this.lastFrame = null
     this.pipeline = pipeline
     pipeline.on('data', this.onPipelineData)
   }

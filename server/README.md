@@ -4,7 +4,7 @@
 
 - 接收 ESP32 硬件经 UDP 推入的 H.264 流；
 - 为每个节点在独立 HTTP 端口分发 **WebSocket H.264**（jmuxer）与 **MJPEG**（浏览器 `<img>`）；
-- 按 15GB 上限循环录制 MP4 切片（FIFO 覆盖），提供列表、下载、单删、批量删；
+- 按 3GB 上限循环录制 MP4 切片（FIFO 覆盖），提供列表、下载、单删、批量删；
 - 采集 CPU / 内存 / 磁盘 / 录像池指标，扫描主机监听端口；
 - 节点进程看门狗：ffmpeg 退出后指数退避重启，配置持久化到 `data/nodes.json`。
 
@@ -22,14 +22,9 @@ npm test          # 纯 Node 测试，不依赖 ffmpeg
 npm start         # 默认监听 0.0.0.0:3000
 ```
 
-前端根目录 `.env`：
-
-```env
-VITE_API_BASE=http://<SERVER_IP>:3000/api
-VITE_STREAM_HOST=<SERVER_IP>
-```
-
-> 前端直连 `http://<IP>:3000` 与各节点视频端口，后端已开启 CORS；无需反向代理即可工作。
+前端默认使用同源 `/api` 与 `/video/<port>/stream`、`/video/<port>/mjpeg`。
+HTTPS 页面自动使用 WSS。生产 Nginx 和 systemd 配置见 `../ops/`。
+管理员令牌只放在服务器环境文件中，浏览器登录时由用户输入。
 
 ## 目录与运行时数据
 
@@ -103,7 +98,7 @@ server/
 | `RECORD_DIR` | `server/records` | 录像根目录 |
 | `DATA_DIR` | `server/data` | 节点状态目录 |
 | `DISK_PATH` | `/`（Windows 为盘符根） | “服务器根磁盘”指标统计的分区 |
-| `RECORD_POOL_MB` | `15360` | 录像池上限（15GB） |
+| `RECORD_POOL_MB` | `3072` | 录像池上限（3GB） |
 | `SEGMENT_SECONDS` | `300` | 单个 MP4 切片时长 |
 | `UDP_PORT_MIN` / `UDP_PORT_MAX` | `9001` / `9050` | 允许的硬件通讯端口 |
 | `HTTP_PORT_MIN` / `HTTP_PORT_MAX` | `9051` / `9100` | 允许的视频流端口 |
@@ -115,13 +110,14 @@ server/
 
 ## 鉴权说明
 
-前端的管理员密码校验（`VITE_ADMIN_PASSWORD`）完全发生浏览器侧，后端无法感知。因此：
+生产必须设置 `ADMIN_TOKEN`。节点写操作和录像读取、下载需要认证。
 
-- `ADMIN_TOKEN` 为空（默认）时后端不校验，行为与现有前端完全兼容；
-- 设置 `ADMIN_TOKEN` 后，所有节点写操作与 `/records*` 读取/下载需要 `X-Admin-Token` 请求头，下载链接额外支持 `?token=`；
-- 启用后需自行在部署层（Nginx Basic Auth、内网/VPN）或前端代理中补齐令牌注入，否则前端页面会收到 401。
+- `POST /api/auth/login` 接受 `{ "password": "..." }`，签发 8 小时 HttpOnly、SameSite=Strict 会话，HTTPS 使用 Secure Cookie。
+- `GET /api/auth/session` 查询会话，`POST /api/auth/logout` 注销。
+- 自动化脚本可使用 `X-Admin-Token` 请求头。服务重启后会话失效，需要重新登录。
+- 本地开发允许空 `ADMIN_TOKEN`，生产环境文件必须设置非空值。
 
-生产环境若暴露公网，建议至少用 Nginx 限制 `3000` 与 `9051-9100` 的访问来源。
+生产 API 和视频 HTTP 仅监听回环接口，通过 Nginx 同源代理访问。
 
 ## 部署（systemd 示例）
 

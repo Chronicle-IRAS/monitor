@@ -1,3 +1,4 @@
+import { createAuth } from './auth.js'
 import { createReadStream } from 'node:fs'
 import { HttpError, round } from './util.js'
 import { probeTcp, probeUdp, scanListeningPorts } from './ports.js'
@@ -37,17 +38,8 @@ async function readJson(req) {
   }
 }
 
-function requireAdmin(req, url, config) {
-  if (!config.adminToken) return
-  const header = req.headers['x-admin-token']
-  const fromHeader = Array.isArray(header) ? header[0] : header
-  const token = fromHeader ?? url.searchParams.get('token')
-  if (token !== config.adminToken) {
-    throw new HttpError(401, '未授权：需要管理员令牌')
-  }
-}
-
 export function createApiHandler({ config, nodes, records, metrics, log }) {
+  const auth = createAuth(config)
   const json = (res, status, body) => {
     const payload = Buffer.from(JSON.stringify(body))
     res.writeHead(status, {
@@ -104,7 +96,26 @@ export function createApiHandler({ config, nodes, records, metrics, log }) {
     const method = req.method ?? 'GET'
     const isAdminRoute =
       segments[0] === 'records' || (segments[0] === 'nodes' && method === 'POST')
-    if (isAdminRoute) requireAdmin(req, url, config)
+    if (isAdminRoute) auth.requireAdmin(req)
+
+    if (segments[0] === 'auth' && segments.length === 2) {
+      res.setHeader('Cache-Control', 'no-store')
+      if (method === 'POST' && segments[1] === 'login') {
+        const body = await readJson(req)
+        auth.login(req, res, body.password)
+        json(res, 200, { authenticated: true })
+        return
+      }
+      if (method === 'POST' && segments[1] === 'logout') {
+        auth.logout(req, res)
+        json(res, 200, { authenticated: false })
+        return
+      }
+      if (method === 'GET' && segments[1] === 'session') {
+        json(res, 200, { authenticated: auth.authenticated(req) })
+        return
+      }
+    }
 
     // --- 健康检查 ---
     if (method === 'GET' && segments.length === 1 && segments[0] === 'health') {
@@ -207,7 +218,7 @@ export function createApiHandler({ config, nodes, records, metrics, log }) {
           ...corsHeaders(config),
           'Content-Type': 'video/mp4',
           'Content-Length': stats.size,
-          'Content-Disposition': `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+          'Content-Disposition': `attachment; filename="recording.mp4"; filename*=UTF-8''${encodeURIComponent(filename)}`,
           'Cache-Control': 'no-store',
         })
         const stream = createReadStream(filePath)

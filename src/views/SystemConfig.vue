@@ -35,7 +35,7 @@
       <el-col :xs="24" :sm="12" :md="6">
         <el-card shadow="hover" class="stat-card">
           <template #header>
-            <span class="card-title">录像缓存池 (限额 15.0GB)</span>
+            <span class="card-title">录像缓存池 (限额 3.0GB)</span>
           </template>
           <div class="dashboard-box">
             <el-progress type="dashboard" :percentage="recordVal" :color="recordColors" />
@@ -75,7 +75,7 @@
           <el-tag type="warning" effect="dark">{{ store.nodes?.length || 0 }} 个在线节点</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="流媒体总缓冲阈值保护">
-          <span class="text-safe">15360 MB</span>
+          <span class="text-safe">3072 MB</span>
         </el-descriptions-item>
         <el-descriptions-item label="UDP通讯及转码管道状态">
           <span class="text-safe">🟢 正常 </span>
@@ -99,7 +99,7 @@ const customColors = [
   { color: '#f56c6c', percentage: 100 },
 ]
 
-// 录像容量池专属颜色提醒：快到15GB时变成黄色橙色提示覆盖
+// 录像容量池专属颜色提醒：快到3GB时变成黄色橙色提示覆盖
 const recordColors = [
   { color: '#409eff', percentage: 60 },
   { color: '#e6a23c', percentage: 85 },
@@ -121,14 +121,14 @@ const memVal = computed(() => {
   return Number.isNaN(val) || val < 0 ? 0 : val > 100 ? 100 : val
 })
 
-// 15GB 视频缓冲池百分比
+// 3GB 视频缓冲池百分比
 const recordVal = computed(() => {
   if (!statusAny.value) return 0
   const val = Number(statusAny.value.recordPercent)
   return Number.isNaN(val) || val < 0 ? 0 : val > 100 ? 100 : val
 })
 
-// 15GB 视频缓冲池已用文字表现（自动由 MB 转换为更直观的 GB）
+// 3GB 视频缓冲池已用文字表现（自动由 MB 转换为更直观的 GB）
 const recordUsedStr = computed(() => {
   if (!statusAny.value || !statusAny.value.recordUsageMB) return '0.0 MB'
   const mb = Number(statusAny.value.recordUsageMB)

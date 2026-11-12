@@ -75,9 +75,10 @@ const toggleDarkMode = () => {
 // 登录弹窗相关
 const showAuthDialog = ref(false)
 const adminPwd = ref('')
+void store.restoreSession()
 
-const handleLogin = () => {
-  if (store.login(adminPwd.value)) {
+const handleLogin = async () => {
+  if (await store.login(adminPwd.value)) {
     showAuthDialog.value = false
     adminPwd.value = ''
   }

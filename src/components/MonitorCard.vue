@@ -124,7 +124,7 @@ onUnmounted(() => {
           <div class="info-item">
             <span>录制状态:</span>
             <el-tag :type="node.isRecord ? 'danger' : 'info'" size="small" effect="dark">
-              {{ node.isRecord ? '服务器同步录制中 (15G上限覆盖)' : '未开启录制' }}
+              {{ node.isRecord ? '服务器同步录制中 (3G上限覆盖)' : '未开启录制' }}
             </el-tag>
           </div>
           <div class="info-item"><span>UDP 通讯端口:</span> {{ node.udp }}</div>

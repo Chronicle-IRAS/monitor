@@ -65,6 +65,9 @@ export class NodeManager {
     this.nodes = new Map()
     this.timer = null
     this.saveChain = Promise.resolve()
+    this.startChain = Promise.resolve()
+    this.closing = false
+    this.restoring = false
   }
 
   async init() {
@@ -80,6 +83,8 @@ export class NodeManager {
       }
     }
 
+    this.closing = false
+    this.restoring = true
     for (const item of saved) {
       try {
         await this.start(item)
@@ -89,6 +94,7 @@ export class NodeManager {
       }
     }
 
+    this.restoring = false
     this.timer = setInterval(() => this.#tick(), TICK_MS)
     this.timer.unref?.()
   }
@@ -97,7 +103,14 @@ export class NodeManager {
     return [...this.nodes.values()].map((record) => this.#publicNode(record))
   }
 
-  async start(input) {
+  start(input) {
+    const operation = this.startChain.then(() => this.#start(input))
+    this.startChain = operation.catch(() => {})
+    return operation
+  }
+
+  async #start(input) {
+    if (this.closing) throw new HttpError(503, '服务正在关闭')
     const node = normalizeNodeInput(input, this.config)
 
     if (this.nodes.has(node.id)) {
@@ -190,9 +203,21 @@ export class NodeManager {
   }
 
   async shutdown() {
+    this.closing = true
+    await this.startChain
     clearInterval(this.timer)
     this.timer = null
-    await this.reset()
+    await this.saveChain
+    const records = [...this.nodes.values()]
+    for (const record of records) {
+      record.stopping = true
+      clearTimeout(record.restartTimer)
+    }
+    await Promise.all(records.map(async (record) => {
+      await record.pipeline?.stop()
+      await record.server?.close()
+    }))
+    this.nodes.clear()
   }
 
   #publicNode(record) {
@@ -262,6 +287,10 @@ export class NodeManager {
     record.server.attachPipeline(pipeline)
     try {
       await pipeline.start()
+      if (record.stopping) {
+        await pipeline.stop()
+        return
+      }
       record.pipeline = pipeline
       record.startedAt = Date.now()
       this.log.info(`[${record.id}] ffmpeg 管道已重启`)
@@ -274,6 +303,7 @@ export class NodeManager {
   }
 
   #save() {
+    if (this.restoring) return this.saveChain
     const payload = JSON.stringify(
       [...this.nodes.values()].map((record) => ({
         id: record.id,

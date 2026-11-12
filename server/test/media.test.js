@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { buildFfmpegArgs } from '../src/pipeline.js'
 import { AnnexBSplitter, H264KeyframeCache, JpegFramer, nalType } from '../src/media.js'
 import { H264_CHUNK, IDR, INTER, PPS, SPS, JPEG_FRAME } from './fake-ffmpeg.js'
 
@@ -68,4 +69,22 @@ test('JPEG 帧切分：跨分块与多帧连续输出', () => {
     assert.ok(collected[0].equals(JPEG_FRAME))
     assert.ok(collected[1].equals(JPEG_FRAME))
   }
+})
+
+
+test('IDR cache retains every slice of a keyframe', () => {
+  const cache = new H264KeyframeCache()
+  const secondSlice = Buffer.from([0, 0, 0, 1, 0x65, 0x40])
+  for (const nal of [SPS, PPS, IDR, secondSlice, INTER]) cache.push(nal)
+  assert.deepEqual(cache.snapshot(), Buffer.concat([SPS, PPS, IDR, secondSlice, INTER]))
+})
+
+
+test('recording arguments survive interrupted writes and have unique prefixes', () => {
+  const node = { id: 'camera', udp: 9001, streamType: 'ffmpeg', isRecord: true }
+  const config = { recordDir: '/records', segmentSeconds: 60 }
+  const first = buildFfmpegArgs(node, config)
+  const second = buildFfmpegArgs(node, config)
+  assert.ok(first.includes('movflags=+frag_keyframe+empty_moov+default_base_moof'))
+  assert.notEqual(first.at(-1), second.at(-1))
 })
