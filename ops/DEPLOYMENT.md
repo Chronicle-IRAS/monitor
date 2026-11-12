@@ -1,5 +1,9 @@
 # Monitor production deployment
 
+## Deployment correction — 2026-11-12
+
+Release 20261112-05, source fe43d9c, has now been installed and activated using ubuntu@43.142.120.169 with the existing key and sudo. The earlier root-login blocker below is historical. All 32 backend tests passed locally and on the server. Type checking and the production build passed. The backend and health timer are active, the loopback health request returned 200, and nodes.json matched the backup byte-for-byte after restart. Public anonymous HTTPS returns 401 as intended. Physical ESP32 integration remains unverified. Future deployments must use the ubuntu account and sudo, replacing the root login in the historical runbook below.
+
 ## JPEG/UDP compatibility release 20261112-05 — prepared, not deployed
 
 Scope: backend JPEG/UDP receiver for CAM-WEB (`streamType=jpeg-udp`), frontend mode selector/preview, hardware configuration checklist. H.264 (`ffmpeg`) and existing MJPEG (`mjpeg`) paths are unchanged; no API path, node field, or recording endpoint was removed.
