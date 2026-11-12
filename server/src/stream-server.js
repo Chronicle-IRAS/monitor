@@ -1,5 +1,6 @@
 import http from 'node:http'
 import { AnnexBSplitter, H264KeyframeCache, JpegFramer } from './media.js'
+import { JPEG_UDP_STREAM_TYPE } from './jpeg-udp.js'
 import { WsHub } from './ws.js'
 
 const MJPEG_BOUNDARY = 'frame'
@@ -30,6 +31,7 @@ export class StreamServer {
     this.framer = new JpegFramer()
     this.lastFrame = null
     this.pipeline = null
+    this.receiver = null
     this.server = null
     this.sockets = new Set()
     this.mjpegClients = new Set()
@@ -47,7 +49,18 @@ export class StreamServer {
 
   async listen() {
     this.server = http.createServer((req, res) => this.#handleHttp(req, res))
-    this.server.on('upgrade', (req, socket, head) => this.hub.handleUpgrade(req, socket, head))
+    this.server.on('upgrade', (req, socket, head) => {
+      if (this.node.streamType === JPEG_UDP_STREAM_TYPE) {
+        const body = '该节点为 JPEG/UDP 模式，请使用 HTTP /mjpeg 拉流'
+        socket.write(
+          `HTTP/1.1 409 Conflict\r\nContent-Type: text/plain; charset=utf-8\r\n` +
+            `Content-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`,
+        )
+        socket.destroy()
+        return
+      }
+      this.hub.handleUpgrade(req, socket, head)
+    })
     this.server.on('connection', (socket) => {
       this.sockets.add(socket)
       socket.on('close', () => this.sockets.delete(socket))
@@ -74,8 +87,22 @@ export class StreamServer {
 
   attachPipeline(pipeline) {
     if (this.pipeline) this.pipeline.off('data', this.onPipelineData)
+    this.splitter = new AnnexBSplitter()
+    this.cache = new H264KeyframeCache()
+    this.framer = new JpegFramer()
+    this.lastFrame = null
     this.pipeline = pipeline
     pipeline.on('data', this.onPipelineData)
+  }
+
+  attachReceiver(receiver) {
+    this.receiver = receiver
+  }
+
+  /** 分发一整帧 JPEG（JPEG/UDP 重组结果，或 ffmpeg 的 MJPEG 输出）。 */
+  publishFrame(jpeg) {
+    this.lastFrame = jpeg
+    for (const res of this.mjpegClients) this.#writeFrame(res, jpeg)
   }
 
   async close() {
@@ -92,6 +119,7 @@ export class StreamServer {
       this.pipeline.off('data', this.onPipelineData)
       this.pipeline = null
     }
+    this.receiver = null
 
     const server = this.server
     this.server = null
@@ -104,10 +132,7 @@ export class StreamServer {
 
   #handleData(chunk) {
     if (this.node.streamType === 'mjpeg') {
-      for (const frame of this.framer.push(chunk)) {
-        this.lastFrame = frame
-        for (const res of this.mjpegClients) this.#writeFrame(res, frame)
-      }
+      for (const frame of this.framer.push(chunk)) this.publishFrame(frame)
       return
     }
 
@@ -142,6 +167,7 @@ export class StreamServer {
         isRecord: this.node.isRecord,
         wsClients: this.hub.size,
         mjpegClients: this.mjpegClients.size,
+        ...(this.receiver ? { rx: this.receiver.stats } : {}),
       })
       return
     }
@@ -150,7 +176,7 @@ export class StreamServer {
   }
 
   #serveMjpeg(req, res) {
-    if (this.node.streamType !== 'mjpeg') {
+    if (this.node.streamType !== 'mjpeg' && this.node.streamType !== JPEG_UDP_STREAM_TYPE) {
       sendJson(res, 409, { message: '该节点为 H.264 推流模式，请使用 WebSocket /stream 拉流' })
       return
     }

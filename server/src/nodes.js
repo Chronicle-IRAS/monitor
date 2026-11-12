@@ -2,6 +2,8 @@ import fs from 'node:fs/promises'
 import { HttpError } from './util.js'
 import { Pipeline } from './pipeline.js'
 import { StreamServer } from './stream-server.js'
+import { JPEG_UDP_STREAM_TYPE, JpegUdpReceiver } from './jpeg-udp.js'
+import { JpegRecorder } from './recorder.js'
 import { invalidatePortScanCache, probeTcp, probeUdp } from './ports.js'
 
 const TICK_MS = 5000
@@ -35,8 +37,8 @@ function normalizeNodeInput(input, config) {
   const id = normalizeDeviceId(input.id)
 
   const streamType = input.streamType === undefined ? 'ffmpeg' : input.streamType
-  if (streamType !== 'ffmpeg' && streamType !== 'mjpeg') {
-    throw new HttpError(400, "推流模式必须是 'ffmpeg' 或 'mjpeg'")
+  if (streamType !== 'ffmpeg' && streamType !== 'mjpeg' && streamType !== JPEG_UDP_STREAM_TYPE) {
+    throw new HttpError(400, `推流模式必须是 'ffmpeg'、'mjpeg' 或 '${JPEG_UDP_STREAM_TYPE}'`)
   }
 
   const udp = Number(input.udp)
@@ -65,6 +67,9 @@ export class NodeManager {
     this.nodes = new Map()
     this.timer = null
     this.saveChain = Promise.resolve()
+    this.startChain = Promise.resolve()
+    this.closing = false
+    this.restoring = false
   }
 
   async init() {
@@ -80,6 +85,8 @@ export class NodeManager {
       }
     }
 
+    this.closing = false
+    this.restoring = true
     for (const item of saved) {
       try {
         await this.start(item)
@@ -89,6 +96,7 @@ export class NodeManager {
       }
     }
 
+    this.restoring = false
     this.timer = setInterval(() => this.#tick(), TICK_MS)
     this.timer.unref?.()
   }
@@ -97,7 +105,14 @@ export class NodeManager {
     return [...this.nodes.values()].map((record) => this.#publicNode(record))
   }
 
-  async start(input) {
+  start(input) {
+    const operation = this.startChain.then(() => this.#start(input))
+    this.startChain = operation.catch(() => {})
+    return operation
+  }
+
+  async #start(input) {
+    if (this.closing) throw new HttpError(503, '服务正在关闭')
     const node = normalizeNodeInput(input, this.config)
 
     if (this.nodes.has(node.id)) {
@@ -131,6 +146,8 @@ export class NodeManager {
       restarts: 0,
       restartTimer: null,
       pipeline: null,
+      receiver: null,
+      recorder: null,
       server: null,
     }
 
@@ -140,19 +157,50 @@ export class NodeManager {
     } catch (error) {
       throw new HttpError(500, `视频流端口 ${node.http} 监听失败: ${error.message}`)
     }
+    record.server = server
 
-    const pipeline = this.#createPipeline(record)
-    server.attachPipeline(pipeline)
+    let pipeline = null
+    let receiver = null
+    let recorder = null
     try {
-      await pipeline.start()
+      if (node.streamType === JPEG_UDP_STREAM_TYPE) {
+        recorder = new JpegRecorder({
+          node: record,
+          config: this.config,
+          spawn: this.spawn,
+          log: this.log,
+          idleMs: this.config.jpegRecordIdleMs,
+        })
+        await recorder.start()
+        record.recorder = recorder
+        receiver = this.#createReceiver(record)
+        record.receiver = receiver
+        server.attachReceiver(receiver)
+        this.#attachJpegReceiver(record, receiver)
+        await receiver.start()
+      } else {
+        pipeline = this.#createPipeline(record)
+        server.attachPipeline(pipeline)
+        await pipeline.start()
+      }
     } catch (error) {
+      await receiver?.stop()
+      await recorder?.stop()
       await server.close()
       clearTimeout(record.restartTimer)
-      throw new HttpError(500, `ffmpeg 启动失败: ${error.message}`)
+      record.receiver = null
+      record.recorder = null
+      record.server = null
+      const detail =
+        node.streamType === JPEG_UDP_STREAM_TYPE
+          ? `UDP 端口 ${node.udp} 监听失败: ${error.message}`
+          : `ffmpeg 启动失败: ${error.message}`
+      throw new HttpError(500, detail)
     }
 
     record.pipeline = pipeline
-    record.server = server
+    record.receiver = receiver
+    record.recorder = recorder
     record.startedAt = Date.now()
     this.nodes.set(record.id, record)
     invalidatePortScanCache()
@@ -170,6 +218,14 @@ export class NodeManager {
     if (record.restartTimer) {
       clearTimeout(record.restartTimer)
       record.restartTimer = null
+    }
+    if (record.receiver) {
+      await record.receiver.stop()
+      record.receiver = null
+    }
+    if (record.recorder) {
+      await record.recorder.stop()
+      record.recorder = null
     }
     if (record.pipeline) await record.pipeline.stop()
     if (record.server) await record.server.close()
@@ -190,20 +246,73 @@ export class NodeManager {
   }
 
   async shutdown() {
+    this.closing = true
+    await this.startChain
     clearInterval(this.timer)
     this.timer = null
-    await this.reset()
+    await this.saveChain
+    const records = [...this.nodes.values()]
+    for (const record of records) {
+      record.stopping = true
+      clearTimeout(record.restartTimer)
+    }
+    await Promise.all(records.map(async (record) => {
+      await record.receiver?.stop()
+      await record.recorder?.stop()
+      await record.pipeline?.stop()
+      await record.server?.close()
+    }))
+    this.nodes.clear()
   }
 
   #publicNode(record) {
-    return {
+    const base = {
       id: record.id,
       udp: record.udp,
       http: record.http,
       streamType: record.streamType,
       isRecord: record.isRecord,
+    }
+    if (record.receiver) {
+      const stats = record.receiver.stats
+      return {
+        ...base,
+        status: stats.running ? 'online' : 'restarting',
+        receiving: stats.lastFrameAt > 0 && Date.now() - stats.lastFrameAt < 5000,
+        rxFrames: stats.frames,
+        rxPackets: stats.packets,
+        rxDropped: stats.dropped,
+        lastFrameAt: stats.lastFrameAt,
+      }
+    }
+    return {
+      ...base,
       status: record.pipeline && !record.pipeline.exited ? 'online' : 'restarting',
     }
+  }
+
+  #createReceiver(record) {
+    return new JpegUdpReceiver({
+      node: record,
+      config: this.config,
+      log: this.log,
+      frameTimeoutMs: this.config.jpegFrameTimeoutMs,
+      sourceIdleMs: this.config.jpegSourceIdleMs,
+      maxFrameBytes: this.config.jpegMaxFrameBytes,
+    })
+  }
+
+  #attachJpegReceiver(record, receiver) {
+    receiver.on('frame', (frame) => {
+      record.server?.publishFrame(frame)
+      record.recorder?.push(frame)
+    })
+    receiver.on('error', (error) => {
+      if (record.stopping || record.receiver !== receiver) return
+      this.log.warn(`[${record.id}] JPEG UDP 接收异常: ${error.message}`)
+      receiver.running = false
+      this.#scheduleRestart(record)
+    })
   }
 
   #createPipeline(record) {
@@ -237,6 +346,9 @@ export class NodeManager {
       if (record.pipeline?.exited && !record.restartTimer && !record.restarting) {
         this.#scheduleRestart(record)
       }
+      if (record.receiver && !record.receiver.running && !record.restartTimer && !record.restarting) {
+        this.#scheduleRestart(record)
+      }
     }
   }
 
@@ -258,10 +370,45 @@ export class NodeManager {
   async #restart(record) {
     if (record.stopping || !this.nodes.has(record.id) || record.restarting) return
     record.restarting = true
+
+    if (record.streamType === JPEG_UDP_STREAM_TYPE) {
+      const previous = record.receiver
+      record.receiver = null
+      record.server?.attachReceiver(null)
+      await previous?.stop()
+
+      const receiver = this.#createReceiver(record)
+      record.receiver = receiver
+      record.server?.attachReceiver(receiver)
+      this.#attachJpegReceiver(record, receiver)
+      try {
+        await receiver.start()
+        if (record.stopping) {
+          await receiver.stop()
+          return
+        }
+        record.startedAt = Date.now()
+        this.log.info(`[${record.id}] JPEG UDP 接收器已重启`)
+      } catch (error) {
+        this.log.error(`[${record.id}] JPEG UDP 接收器重启失败: ${error.message}`)
+        record.receiver = null
+        record.server?.attachReceiver(null)
+        await receiver.stop()
+        this.#scheduleRestart(record)
+      } finally {
+        record.restarting = false
+      }
+      return
+    }
+
     const pipeline = this.#createPipeline(record)
     record.server.attachPipeline(pipeline)
     try {
       await pipeline.start()
+      if (record.stopping) {
+        await pipeline.stop()
+        return
+      }
       record.pipeline = pipeline
       record.startedAt = Date.now()
       this.log.info(`[${record.id}] ffmpeg 管道已重启`)
@@ -274,6 +421,7 @@ export class NodeManager {
   }
 
   #save() {
+    if (this.restoring) return this.saveChain
     const payload = JSON.stringify(
       [...this.nodes.values()].map((record) => ({
         id: record.id,

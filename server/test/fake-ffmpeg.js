@@ -19,10 +19,19 @@ export const JPEG_FRAME = Buffer.concat([
  */
 export function createFakeFfmpeg({ interval = 40 } = {}) {
   const children = []
-  const spawn = (_command, args) => {
+  const spawn = (command, args) => {
     const child = new EventEmitter()
+    child.command = command
+    child.args = args
     child.stdout = new PassThrough()
     child.stderr = new PassThrough()
+    child.stdin = new PassThrough()
+    child.stdinChunks = []
+    child.stdinEnded = false
+    child.stdin.on('data', (chunk) => child.stdinChunks.push(chunk))
+    child.stdin.on('end', () => {
+      child.stdinEnded = true
+    })
     child.exited = false
     child.killed = false
 
@@ -39,6 +48,8 @@ export function createFakeFfmpeg({ interval = 40 } = {}) {
       process.nextTick(() => child.emit('exit', 0, 'SIGTERM'))
       return true
     }
+    // 录制进程在 stdin 关闭后自然退出；伪造同样的关闭语义。
+    child.stdin.on('finish', () => child.kill())
 
     children.push(child)
     process.nextTick(() => child.emit('spawn'))

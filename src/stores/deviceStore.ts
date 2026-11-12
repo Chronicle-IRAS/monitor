@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
-import { ADMIN_PASSWORD, API_BASE } from '@/config'
+import { API_BASE } from '@/config'
 
 axios.defaults.timeout = 5000
 
@@ -9,6 +9,11 @@ export interface DeviceNode {
   id: string
   udp: number
   http: number
+  streamType?: 'ffmpeg' | 'mjpeg' | 'jpeg-udp'
+  isRecord?: boolean
+  status?: string
+  receiving?: boolean
+  rxFrames?: number
 }
 
 export const useDeviceStore = defineStore('device', {
@@ -17,7 +22,7 @@ export const useDeviceStore = defineStore('device', {
     systemStatus: { cpuUsage: '0', memUsage: '0', memTotal: '0', uptime: '0' },
     loading: false,
     // 从本地存储读取管理员状态
-    isAdmin: localStorage.getItem('pro-admin-auth') === 'true',
+    isAdmin: false,
   }),
   getters: {
     usedPorts: (state) => {
@@ -32,23 +37,29 @@ export const useDeviceStore = defineStore('device', {
     },
   },
   actions: {
-    login(password: string) {
-      if (ADMIN_PASSWORD && password === ADMIN_PASSWORD) {
+    async login(password: string) {
+      try {
+        await axios.post(`${API_BASE}/auth/login`, { password })
         this.isAdmin = true
-        localStorage.setItem('pro-admin-auth', 'true')
-        ElMessage.success('管理员认证成功，控制台已解锁')
+        ElMessage.success('管理员认证成功')
         return true
-      } else {
-        ElMessage.error('密码错误，拒绝访问')
+      } catch {
+        this.isAdmin = false
+        ElMessage.error('认证失败')
         return false
       }
     },
 
-    // 退出登录
-    logout() {
+    async logout() {
+      await axios.post(`${API_BASE}/auth/logout`)
       this.isAdmin = false
-      localStorage.removeItem('pro-admin-auth')
-      ElMessage.warning('已退出管理员模式，当前为仅查看状态')
+    },
+
+    async restoreSession() {
+      try {
+        const { data } = await axios.get(`${API_BASE}/auth/session`)
+        this.isAdmin = data.authenticated === true
+      } catch { this.isAdmin = false }
     },
 
     async refreshNodes() {

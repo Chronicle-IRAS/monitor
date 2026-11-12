@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import { spawn as spawnProcess } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { randomBytes } from 'node:crypto'
 
 const STOP_TIMEOUT_MS = 3000
 
@@ -18,7 +19,7 @@ export function buildFfmpegArgs(node, config) {
     'warning',
     '-nostdin',
     '-fflags',
-    'nobuffer',
+    '+genpts',
     '-flags',
     'low_delay',
     '-probesize',
@@ -32,7 +33,7 @@ export function buildFfmpegArgs(node, config) {
   ]
 
   if (node.streamType === 'mjpeg') {
-    args.push('-c:v', 'mjpeg', '-q:v', '4', '-f', 'image2pipe', 'pipe:1')
+    args.push('-vf', 'fps=5,scale=640:-2:force_original_aspect_ratio=decrease', '-c:v', 'mjpeg', '-q:v', '6', '-f', 'image2pipe', 'pipe:1')
   } else {
     args.push('-c:v', 'copy', '-f', 'h264', 'pipe:1')
   }
@@ -49,11 +50,13 @@ export function buildFfmpegArgs(node, config) {
       String(config.segmentSeconds),
       '-segment_format',
       'mp4',
+      '-segment_format_options',
+      'movflags=+frag_keyframe+empty_moov+default_base_moof',
       '-reset_timestamps',
       '1',
       '-strftime',
       '1',
-      path.join(config.recordDir, node.id, `${node.id}_%Y%m%d_%H%M%S.mp4`),
+      path.join(config.recordDir, node.id, `${node.id}_${randomBytes(4).toString('hex')}_%Y%m%d_%H%M%S.mp4`),
     )
   }
   return args

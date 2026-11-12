@@ -25,6 +25,7 @@
         v-for="node in store.nodes"
         :key="node.id"
         :node="node"
+        :can-manage="store.isAdmin"
         :streamUrl="streamWsUrl(node.http)"
         @close="store.stopNode(node.id)"
       />
@@ -57,6 +58,7 @@
           <el-radio-group v-model="addForm.streamType">
             <el-radio label="ffmpeg">H.264 视频 (省带宽/流畅)</el-radio>
             <el-radio label="mjpeg">MJPEG 原图 (高画质/低延迟)</el-radio>
+            <el-radio label="jpeg-udp">ESP32 硬件 JPEG (UDP 分片)</el-radio>
           </el-radio-group>
         </el-form-item>
 
@@ -105,7 +107,13 @@ const store = useDeviceStore()
 const showAdd = ref(false)
 const isStarting = ref(false)
 
-const addForm = reactive({
+const addForm = reactive<{
+  id: string
+  udp: number
+  http: number
+  streamType: 'ffmpeg' | 'mjpeg' | 'jpeg-udp'
+  isRecord: boolean
+}>({
   id: '',
   udp: 9001,
   http: 9051,
@@ -202,7 +210,7 @@ const confirmAddNode = async () => {
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 420px));
   gap: 20px;
 }
 .occupied-ports-info {

@@ -11,6 +11,6 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test test/media.test.js test/ports.test.js test/records.test.js test/api.test.js"
+    "test": "node --test test/media.test.js test/jpeg-udp.test.js test/ports.test.js test/records.test.js test/api.test.js"
   }
 }

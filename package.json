@@ -14,7 +14,7 @@
     "lint:eslint": "eslint . --fix --cache",
     "format": "prettier --write --experimental-cli src/",
     "server": "node server/src/index.js",
-    "test:server": "node --test server/test/media.test.js server/test/ports.test.js server/test/records.test.js server/test/api.test.js"
+    "test:server": "node --test server/test/media.test.js server/test/jpeg-udp.test.js server/test/ports.test.js server/test/records.test.js server/test/api.test.js"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

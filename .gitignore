@@ -53,3 +53,6 @@ __screenshots__/
 # Backend runtime data
 server/records/
 server/data/
+
+# Local credentials
+.local-secrets/

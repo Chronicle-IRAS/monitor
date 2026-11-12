@@ -77,7 +77,9 @@ export class H264KeyframeCache {
       this.pps = nal
       return
     }
-    if (type === 5) {
+    const payloadOffset = nal[2] === 1 ? 4 : 5
+    // first_mb_in_slice is Exp-Golomb encoded; a leading 1 means slice zero.
+    if (type === 5 && (nal[payloadOffset] & 0x80)) {
       this.gop = []
       this.size = 0
       if (this.sps) {

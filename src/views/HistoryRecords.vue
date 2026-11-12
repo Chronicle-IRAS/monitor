@@ -55,7 +55,7 @@
           <div class="title-area">
             <div class="eyebrow">History Archive</div>
             <h2>{{ activeDevice || '未选择设备' }}</h2>
-            <p class="subtitle">15GB 录像池按先进先出策略自动覆盖旧文件</p>
+            <p class="subtitle">3GB 录像池按先进先出策略自动覆盖旧文件</p>
             <div class="metric-row">
               <el-tag effect="plain" type="primary">{{ currentFiles.length }} 个切片</el-tag>
               <el-tag effect="plain" type="success">{{ activeSizeLabel }}</el-tag>
@@ -291,7 +291,7 @@ const downloadVideo = (filename: string) => {
     ElMessage.error('非法操作，拒绝下载')
     return
   }
-  const downloadUrl = `${API_BASE}/records/download/${activeDevice.value}/${filename}`
+  const downloadUrl = `${API_BASE}/records/download/${encodeURIComponent(activeDevice.value)}/${encodeURIComponent(filename)}`
   const link = document.createElement('a')
   link.href = downloadUrl
   link.setAttribute('download', filename)
@@ -313,7 +313,7 @@ const deleteVideo = (filename: string) => {
     .then(async () => {
       loading.value = true
       try {
-        await axios.delete(`${API_BASE}/records/${activeDevice.value}/${filename}`)
+        await axios.delete(`${API_BASE}/records/${encodeURIComponent(activeDevice.value)}/${encodeURIComponent(filename)}`)
         ElMessage.success('录像文件已删除')
         await fetchRecordTree()
       } catch (error) {

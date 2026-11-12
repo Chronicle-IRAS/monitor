@@ -1,0 +1,5 @@
+[Unit]
+Description=Monitor HTTP health check
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '/usr/bin/curl --fail --silent --max-time 10 http://127.0.0.1:3100/api/health || /bin/systemctl restart monitor.service'
