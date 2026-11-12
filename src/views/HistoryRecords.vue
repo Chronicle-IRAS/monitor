@@ -1,6 +1,11 @@
 <template>
   <div class="records-container">
-    <el-container class="records-layout" v-if="store.isAdmin" v-loading="loading">
+    <el-container
+      class="records-layout"
+      v-if="store.isAdmin"
+      v-loading="loading"
+      element-loading-text="正在读取录像索引…"
+    >
       <el-aside width="280px" class="device-aside">
         <div class="aside-header">
           <div class="aside-title">
@@ -29,7 +34,10 @@
               <div class="menu-item-content">
                 <div class="device-copy">
                   <span class="device-name">{{ item.deviceId }}</span>
-                  <span class="device-meta">{{ item.files.length }} 个录像文件</span>
+                  <span class="device-meta"
+                    >{{ item.files.length }} 个切片 ·
+                    {{ formatSize(sumFileSize(item.files)) }}</span
+                  >
                 </div>
 
                 <div class="menu-actions" @click.stop>
@@ -64,52 +72,56 @@
           </div>
 
           <div class="action-group">
-            <transition name="fade">
-              <el-button
-                v-if="multipleSelection.length > 0"
-                type="danger"
-                :icon="DeleteIcon"
-                @click="handleBatchDelete"
-              >
-                批量删除 (已选 {{ multipleSelection.length }} 项)
-              </el-button>
-            </transition>
-            <el-button :icon="Refresh" circle title="刷新录像列表" @click="fetchRecordTree" />
+            <el-button :icon="Refresh" @click="fetchRecordTree">刷新</el-button>
           </div>
         </div>
 
-        <div class="table-shell">
+        <Transition name="fade">
+          <div v-if="multipleSelection.length > 0" class="selection-bar">
+            <span class="selection-count"
+              >已选择 <strong>{{ multipleSelection.length }}</strong> 个切片</span
+            >
+            <div class="selection-actions">
+              <el-button text @click="clearSelection">取消选择</el-button>
+              <el-button type="danger" :icon="DeleteIcon" @click="handleBatchDelete">
+                删除选中
+              </el-button>
+            </div>
+          </div>
+        </Transition>
+
+        <div v-if="!isMobile" class="table-shell">
           <el-table
+            ref="tableRef"
             :data="currentFiles"
             stripe
             style="width: 100%"
-            height="calc(100vh - 280px)"
+            max-height="calc(100vh - 360px)"
             @selection-change="handleSelectionChange"
           >
-            <el-table-column type="selection" width="54" align="center" />
+            <el-table-column type="selection" width="48" align="center" />
 
-            <el-table-column type="index" label="序号" width="72" align="center" />
-            <el-table-column prop="filename" label="视频档案名称" min-width="260">
+            <el-table-column label="录像文件" min-width="220">
               <template #default="scope">
                 <div class="file-name-cell">
                   <span class="file-icon">
                     <el-icon><Film /></el-icon>
                   </span>
                   <div class="file-copy">
-                    <span class="file-title">{{ scope.row.filename }}</span>
-                    <span class="file-subtitle">MP4 录像切片</span>
+                    <span class="file-title">{{ scope.row.time }}</span>
+                    <span class="file-meta">
+                      <span class="file-name" :title="scope.row.filename">{{
+                        scope.row.filename
+                      }}</span>
+                      <span class="file-dot">·</span>
+                      <span>{{ scope.row.size }}</span>
+                    </span>
                   </div>
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="time" label="录制生成时间" min-width="180" align="center" />
-            <el-table-column prop="size" label="文件大小" width="130" align="center">
-              <template #default="scope">
-                <el-tag size="small" type="success" effect="plain">{{ scope.row.size }}</el-tag>
-              </template>
-            </el-table-column>
 
-            <el-table-column label="操作" width="172" align="center" fixed="right">
+            <el-table-column label="操作" width="156" align="center" fixed="right">
               <template #default="scope">
                 <div class="row-actions">
                   <el-button
@@ -136,11 +148,77 @@
             <template #empty>
               <div class="table-empty">
                 <el-icon><Film /></el-icon>
-                <strong>{{ activeDevice ? '暂无历史视频切片' : '请选择左侧设备节点' }}</strong>
+                <strong>{{ emptyTitle }}</strong>
                 <span>{{ emptyHint }}</span>
+                <el-button size="small" :icon="Refresh" @click="fetchRecordTree"
+                  >刷新列表</el-button
+                >
               </div>
             </template>
           </el-table>
+          <div class="table-footer">
+            <span>共 {{ currentFiles.length }} 个切片</span>
+            <span>{{ activeSizeLabel }} · 最新 {{ latestTimeLabel }}</span>
+          </div>
+        </div>
+
+        <div v-else class="file-card-list">
+          <article
+            v-for="file in currentFiles"
+            :key="file.filename"
+            class="file-card"
+            :class="{ selected: isSelected(file) }"
+          >
+            <div class="file-card-head">
+              <el-checkbox
+                :model-value="isSelected(file)"
+                :aria-label="'选择 ' + file.filename"
+                @change="toggleFileSelection(file, $event)"
+              />
+              <span class="file-icon">
+                <el-icon><Film /></el-icon>
+              </span>
+              <div class="file-copy">
+                <span class="file-title">{{ file.time }}</span>
+                <span class="file-meta">
+                  <span class="file-name" :title="file.filename">{{ file.filename }}</span>
+                  <span class="file-dot">·</span>
+                  <span>{{ file.size }}</span>
+                </span>
+              </div>
+            </div>
+            <div class="file-card-actions">
+              <el-button
+                type="primary"
+                size="small"
+                :icon="Download"
+                @click="downloadVideo(file.filename)"
+              >
+                下载
+              </el-button>
+              <el-button
+                type="danger"
+                size="small"
+                plain
+                :icon="DeleteIcon"
+                @click="deleteVideo(file.filename)"
+              >
+                删除
+              </el-button>
+            </div>
+          </article>
+
+          <div v-if="currentFiles.length === 0" class="table-empty">
+            <el-icon><Film /></el-icon>
+            <strong>{{ emptyTitle }}</strong>
+            <span>{{ emptyHint }}</span>
+            <el-button size="small" :icon="Refresh" @click="fetchRecordTree">刷新列表</el-button>
+          </div>
+
+          <div class="table-footer">
+            <span>共 {{ currentFiles.length }} 个切片</span>
+            <span>{{ activeSizeLabel }} · 最新 {{ latestTimeLabel }}</span>
+          </div>
         </div>
       </el-main>
     </el-container>
@@ -158,7 +236,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, computed, onMounted } from 'vue'
+import { ref, shallowRef, computed, watch, onMounted, onUnmounted } from 'vue'
 import {
   FolderOpened,
   VideoCamera,
@@ -188,8 +266,15 @@ const loading = shallowRef(false)
 const recordTree = ref<RecordNode[]>([])
 const activeDevice = shallowRef('')
 const multipleSelection = ref<RecordFile[]>([])
+const tableRef = ref<{ clearSelection: () => void } | null>(null)
+const isMobile = ref(typeof window !== 'undefined' && window.innerWidth <= 768)
+const syncViewport = () => {
+  isMobile.value = window.innerWidth <= 768
+}
 
-const activeNode = computed(() => recordTree.value.find((node) => node.deviceId === activeDevice.value))
+const activeNode = computed(() =>
+  recordTree.value.find((node) => node.deviceId === activeDevice.value),
+)
 const currentFiles = computed(() => activeNode.value?.files ?? [])
 const totalFiles = computed(() =>
   recordTree.value.reduce((total, node) => total + node.files.length, 0),
@@ -201,9 +286,16 @@ const activeSizeMB = computed(() => sumFileSize(currentFiles.value))
 const totalSizeLabel = computed(() => formatSize(totalSizeMB.value))
 const activeSizeLabel = computed(() => formatSize(activeSizeMB.value))
 const latestTimeLabel = computed(() => currentFiles.value[0]?.time || '暂无录像')
-const emptyHint = computed(() =>
-  activeDevice.value ? '当前设备还没有生成录像文件' : '选择一个设备后可查看录像列表',
-)
+const emptyHint = computed(() => {
+  if (recordTree.value.length === 0) return '服务器录像池为空，等待设备生成切片'
+  if (activeDevice.value) return '当前设备还没有生成录像文件'
+  return '选择一个设备后可查看录像列表'
+})
+const emptyTitle = computed(() => {
+  if (recordTree.value.length === 0) return '暂无录像目录'
+  if (activeDevice.value) return '暂无历史视频切片'
+  return '请选择左侧设备节点'
+})
 
 const parseSizeMB = (size: string) => {
   const value = Number.parseFloat(size)
@@ -223,6 +315,24 @@ const handleSelectionChange = (val: RecordFile[]) => {
   multipleSelection.value = val
 }
 
+const clearSelection = () => {
+  multipleSelection.value = []
+  tableRef.value?.clearSelection()
+}
+
+const isSelected = (file: RecordFile) =>
+  multipleSelection.value.some((item) => item.filename === file.filename)
+
+const toggleFileSelection = (file: RecordFile, checked: boolean | string | number) => {
+  if (checked) {
+    if (!isSelected(file)) multipleSelection.value = [...multipleSelection.value, file]
+  } else {
+    multipleSelection.value = multipleSelection.value.filter(
+      (item) => item.filename !== file.filename,
+    )
+  }
+}
+
 const fetchRecordTree = async () => {
   if (!store.isAdmin) return
 
@@ -230,6 +340,7 @@ const fetchRecordTree = async () => {
   try {
     const res = await axios.get(`${API_BASE}/records`)
     recordTree.value = res.data
+    clearSelection()
 
     const stillExists = recordTree.value.some((node) => node.deviceId === activeDevice.value)
     if (!stillExists && recordTree.value.length > 0) {
@@ -247,7 +358,7 @@ const fetchRecordTree = async () => {
 
 const handleDeviceSelect = (deviceId: string) => {
   activeDevice.value = deviceId
-  multipleSelection.value = []
+  clearSelection()
 }
 
 // 🚀 新增：彻底删除整个摄像头设备录像文件夹（极高危动作）
@@ -313,10 +424,12 @@ const deleteVideo = (filename: string) => {
     .then(async () => {
       loading.value = true
       try {
-        await axios.delete(`${API_BASE}/records/${encodeURIComponent(activeDevice.value)}/${encodeURIComponent(filename)}`)
+        await axios.delete(
+          `${API_BASE}/records/${encodeURIComponent(activeDevice.value)}/${encodeURIComponent(filename)}`,
+        )
         ElMessage.success('录像文件已删除')
         await fetchRecordTree()
-      } catch (error) {
+      } catch {
         ElMessage.error('删除失败')
       } finally {
         loading.value = false
@@ -352,7 +465,7 @@ const handleBatchDelete = () => {
         ElMessage.success(`已删除 ${totalSelected} 个历史视频文件`)
         multipleSelection.value = []
         await fetchRecordTree()
-      } catch (error) {
+      } catch {
         ElMessage.error('批量删除未完全成功')
       } finally {
         loading.value = false
@@ -361,8 +474,24 @@ const handleBatchDelete = () => {
     .catch(() => {})
 }
 
+watch(
+  () => store.isAdmin,
+  (isAdmin) => {
+    if (isAdmin) fetchRecordTree()
+  },
+  { immediate: true },
+)
+
+watch(isMobile, () => {
+  clearSelection()
+})
+
 onMounted(() => {
-  fetchRecordTree()
+  window.addEventListener('resize', syncViewport)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', syncViewport)
 })
 </script>
 
@@ -376,9 +505,9 @@ onMounted(() => {
 .records-layout {
   background: var(--el-bg-color-overlay);
   border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
+  border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
 }
 .device-aside {
   background: color-mix(in srgb, var(--el-bg-color) 92%, var(--el-color-primary) 8%);
@@ -467,6 +596,9 @@ onMounted(() => {
   color: var(--el-text-color-secondary);
   font-size: 12px;
   line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .empty-aside {
   padding-top: 40px;
@@ -498,11 +630,15 @@ onMounted(() => {
   justify-content: space-between;
   align-items: flex-start;
   gap: 18px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
   padding: 18px 20px;
-  background: var(--el-fill-color-extra-light);
+  background: linear-gradient(
+    120deg,
+    var(--el-fill-color-extra-light),
+    color-mix(in srgb, var(--el-bg-color) 88%, var(--el-color-primary) 12%)
+  );
   border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
+  border-radius: 12px;
 }
 .title-area {
   min-width: 0;
@@ -542,10 +678,35 @@ onMounted(() => {
   gap: 12px;
   flex-shrink: 0;
 }
+.selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 9px 14px;
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: 10px;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-text-color-primary);
+}
+.selection-count {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+.selection-count strong {
+  color: var(--el-color-primary);
+  font-weight: 700;
+}
+.selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .table-shell {
   overflow: hidden;
   border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--el-bg-color);
 }
 .file-name-cell {
@@ -561,7 +722,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--el-color-primary-light-9);
   color: var(--el-color-primary);
 }
@@ -572,16 +733,87 @@ onMounted(() => {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 .file-title {
   overflow: hidden;
   color: var(--el-text-color-primary);
+  font-size: 13px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.file-subtitle {
+.file-meta {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 5px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-dot {
+  color: var(--el-text-color-placeholder);
+}
+.file-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.file-card {
+  padding: 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 12px;
+  background: var(--el-bg-color);
+  transition:
+    border-color 180ms,
+    background 180ms;
+}
+.file-card.selected {
+  border-color: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
+}
+.file-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.file-card-head .el-checkbox {
+  margin-right: 0;
+  flex-shrink: 0;
+}
+.file-card-head .file-copy {
+  flex: 1;
+}
+.file-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--el-border-color-lighter);
+}
+.file-card-actions .el-button {
+  flex: 1;
+  margin-left: 0;
+}
+.file-card-list .table-footer {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+}
+.table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-extra-light);
   color: var(--el-text-color-secondary);
   font-size: 12px;
 }
@@ -612,6 +844,9 @@ onMounted(() => {
 }
 .table-empty span {
   font-size: 13px;
+}
+.table-empty .el-button {
+  margin-top: 6px;
 }
 :deep(.el-menu-item.is-active) {
   background-color: var(--el-color-primary-light-9) !important;
@@ -646,14 +881,26 @@ onMounted(() => {
   .records-layout {
     flex-direction: column;
   }
-  /* 设备列表收到顶部，限制高度可滚动，边框由右改下 */
+  /* 设备列表改为横向滑动，避免窄屏出现被截断的嵌套滚动 */
   .device-aside {
     width: 100% !important;
     max-width: 100% !important;
-    max-height: 36vh;
-    overflow-y: auto;
+    max-height: none;
+    overflow: visible;
     border-right: none;
     border-bottom: 1px solid var(--el-border-color-lighter);
+  }
+  .device-menu {
+    display: flex;
+    gap: 8px;
+    padding: 8px 12px 12px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .device-menu :deep(.el-menu-item) {
+    flex: 0 0 220px;
+    height: 58px;
+    margin-bottom: 0;
   }
   .file-main {
     padding: 16px;
@@ -668,8 +915,19 @@ onMounted(() => {
   .action-group {
     justify-content: space-between;
   }
+  .selection-bar {
+    flex-wrap: wrap;
+  }
+  .selection-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .table-footer {
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
   .device-name {
-    max-width: 60vw;
+    max-width: 140px;
   }
   .row-actions {
     flex-direction: column;
