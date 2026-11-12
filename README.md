@@ -32,7 +32,7 @@
 
 ## 后端服务
 
-配套后端位于 `server/`（Node.js + ffmpeg，零 npm 依赖），提供前端所需的全部 API、WebSocket H.264 / MJPEG 视频分发、CAM-WEB JPEG/UDP 协议重组、3GB 录像池与节点看门狗。详细接口与配置见 [`server/README.md`](server/README.md)，硬件协议与配置核对见 [`ops/HARDWARE-CONFIG.md`](ops/HARDWARE-CONFIG.md)。
+配套后端位于 `server/`（Node.js + ffmpeg，零 npm 依赖），提供前端所需的全部 API、WebSocket H.264 / MJPEG 视频分发、CAM-WEB JPEG/UDP 协议重组、3GB 录像池与节点看门狗。详细接口与配置见 [`server/README.md`](server/README.md)。
 
 ```sh
 cd server
@@ -139,7 +139,7 @@ deploy.bat
 
 > 脚本以 `root` 用户通过 SSH/SCP 连接服务器，请提前配置好 SSH 访问。
 
-后端不随该脚本发布，需单独部署（systemd 示例与目录权限见 [`server/README.md`](server/README.md)）。生产部署通过同源 HTTPS API 与 WSS 视频代理，配置和回滚步骤见 `ops/DEPLOYMENT.md`。
+后端不随该脚本发布，需单独部署（systemd 示例与目录权限见 [`server/README.md`](server/README.md)）。生产部署通过同源 HTTPS API 与 WSS 视频代理。具体服务器配置和运维记录由部署方私下保存。
 
 ## 推荐 IDE
 

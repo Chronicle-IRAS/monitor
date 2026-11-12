@@ -29,7 +29,7 @@ npm start         # 默认监听 0.0.0.0:3000
 ```
 
 前端默认使用同源 `/api` 与 `/video/<port>/stream`、`/video/<port>/mjpeg`。
-HTTPS 页面自动使用 WSS。生产 Nginx 和 systemd 配置见 `../ops/`。
+HTTPS 页面自动使用 WSS。systemd 通用示例见 `deploy/monitor-pro.service`。
 管理员令牌只放在服务器环境文件中，浏览器登录时由用户输入。
 
 ## 目录与运行时数据
@@ -160,7 +160,7 @@ node --test server/test/jpeg-udp.test.js
 默认端口区间与前端表单（9001–9050 / 9051–9100）一致，修改时需同步前端。
 
 硬件侧默认目标 IP、UDP 端口、NVS 持久化键、MQTT/OTA 地址与需要修改的配置清单见
-[`../ops/HARDWARE-CONFIG.md`](../ops/HARDWARE-CONFIG.md)。
+`src/jpeg-udp.js` 和 `test/jpeg-udp.test.js`。
 
 ## 鉴权说明
 

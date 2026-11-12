@@ -56,3 +56,6 @@ server/data/
 
 # Local credentials
 .local-secrets/
+
+# Private operational records and production configuration
+/ops/
