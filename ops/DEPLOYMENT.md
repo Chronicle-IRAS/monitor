@@ -1,5 +1,13 @@
 # Monitor production deployment
 
+## Preview update 20261112-04
+
+Node cards expand into a viewport-level preview with a card-origin animation, full-frame video, connection feedback and node details. The player DOM instance is retained across opening and closing. Escape, backdrop click, close button, focus trapping and focus restoration are supported. Reduced-motion preferences skip the spatial transition. Mobile previews fit the dynamic viewport. Stopping a node requires administrator access and confirmation.
+
+Desktop and mobile browser checks cover opening, closing, player identity, keyboard focus and guest permissions. Backend tests, type checking and the production build pass. This release changes frontend assets and documentation. The release symlink can be switched without restarting the backend. To roll back this UI, atomically point `current` to `/srv/apps/monitor/releases/20261112-03`.
+
+Local access credentials now live in `.local-secrets/monitor-access.txt` and `.local-secrets/monitor-admin-token.txt`. The directory is ignored by Git, credential files retain owner-only ACLs, and release archives are made from tracked source plus `dist/`. Credentials must never be added to source or build artifacts.
+
 ## Private access added 2026-11-12
 
 Nginx requires HTTP Basic authentication for the entire HTTPS site, including static files, API requests and video upgrades. The username is `chronicle`. The generated password is stored in the owner's local `monitor-access.txt` file and root-only `/etc/monitor-access.credentials` on the server. The password hash lives in `/etc/nginx/monitor.htpasswd`, owned by root and readable by the Nginx group. Application administrator authentication still controls management operations.

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 // @ts-ignore
 import JMuxer from 'jmuxer'
-import { Delete } from '@element-plus/icons-vue'
+import { Delete, Close, FullScreen, VideoCamera } from '@element-plus/icons-vue'
 import { streamHttpUrl } from '@/config'
 
 const props = defineProps<{
@@ -13,6 +13,7 @@ const props = defineProps<{
     streamType?: 'ffmpeg' | 'mjpeg'
     isRecord?: boolean
   }
+  canManage?: boolean
   streamUrl: string
 }>()
 
@@ -29,19 +30,104 @@ let startTimer: number | null = null // 首次建连前的延时句柄
 let reconnectTimer: number | null = null // 重连延时句柄
 const RECONNECT_DELAY = 2000
 
-const toggleExpand = () => {
-  isExpanded.value = !isExpanded.value
+const wrapperRef = ref<HTMLElement | null>(null)
+const panelRef = ref<HTMLElement | null>(null)
+const closeRef = ref<HTMLButtonElement | null>(null)
+const phase = ref<'connecting' | 'playing' | 'waiting'>('connecting')
+const phaseLabel = computed(
+  () => ({ connecting: '正在连接', playing: '实时画面', waiting: '等待视频信号' })[phase.value],
+)
+let previousFocus: HTMLElement | null = null
+let previousOverflow = ''
+let transition: Animation | undefined
+let closing = false
+
+const openPreview = async () => {
+  if (isExpanded.value) return
+  const origin = wrapperRef.value?.getBoundingClientRect()
+  previousFocus = document.activeElement as HTMLElement | null
+  previousOverflow = document.body.style.overflow
+  document.body.style.overflow = 'hidden'
+  isExpanded.value = true
+  await nextTick()
+  closeRef.value?.focus()
+  const panel = panelRef.value
+  if (!panel || !origin || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  const target = panel.getBoundingClientRect()
+  transition = panel.animate(
+    [
+      {
+        transform:
+          'translate(' +
+          (origin.left - target.left) +
+          'px,' +
+          (origin.top - target.top) +
+          'px) scale(' +
+          origin.width / target.width +
+          ',' +
+          origin.height / target.height +
+          ')',
+        opacity: 0.6,
+      },
+      { transform: 'none', opacity: 1 },
+    ],
+    { duration: 340, easing: 'cubic-bezier(.22,1,.36,1)' },
+  )
 }
 
-const handleClose = (e: Event) => {
-  e.stopPropagation()
-  emit('close', props.node.id)
+const closePreview = async () => {
+  if (!isExpanded.value || closing) return
+  closing = true
+  transition?.cancel()
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    transition = panelRef.value?.animate(
+      [
+        { opacity: 1, transform: 'none' },
+        { opacity: 0, transform: 'translateY(12px) scale(.98)' },
+      ],
+      { duration: 160, fill: 'forwards', easing: 'ease-in' },
+    )
+    await transition?.finished.catch(() => {})
+  }
+  isExpanded.value = false
+  document.body.style.overflow = previousOverflow
+  await nextTick()
+  transition?.cancel()
+  if (previousFocus?.isConnected) previousFocus.focus()
+  else wrapperRef.value?.querySelector<HTMLButtonElement>('.open-preview')?.focus()
+  closing = false
+}
+
+const onPreviewKeydown = (event: KeyboardEvent) => {
+  if (!isExpanded.value) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    void closePreview()
+  }
+  if (event.key === 'Tab') {
+    const controls = panelRef.value?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [tabindex="0"]',
+    )
+    if (!controls?.length) return
+    const first = controls[0]
+    const last = controls[controls.length - 1]
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last?.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first?.focus()
+    }
+  }
 }
 
 const connect = () => {
   if (destroyed) return
   ws = new WebSocket(props.streamUrl)
   ws.binaryType = 'arraybuffer'
+  ws.onopen = () => {
+    phase.value = 'waiting'
+  }
 
   ws.onmessage = (event) => {
     if (jmuxer) {
@@ -54,6 +140,7 @@ const connect = () => {
   }
   ws.onclose = () => {
     if (destroyed) return
+    phase.value = 'connecting'
     console.log(`[${props.node.id}] 视频流断开，${RECONNECT_DELAY}ms 后重连`)
     reconnectTimer = window.setTimeout(connect, RECONNECT_DELAY)
   }
@@ -77,6 +164,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   destroyed = true
+  transition?.cancel()
+  if (isExpanded.value) document.body.style.overflow = previousOverflow
   if (startTimer) window.clearTimeout(startTimer)
   if (reconnectTimer) window.clearTimeout(reconnectTimer)
   if (ws) {
@@ -89,250 +178,375 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="monitor-wrapper" :style="{ zIndex: isExpanded ? 100 : 1 }">
-    <transition name="fade">
-      <div v-if="isExpanded" class="backdrop" @click="toggleExpand"></div>
-    </transition>
-
-    <div :class="['monitor-card', { 'is-expanded': isExpanded }]" @click="toggleExpand">
-      <template v-if="node.streamType === 'mjpeg'">
-        <img :src="streamHttpUrl(node.http, '/mjpeg')" class="video-player" alt="MJPEG 流" />
-      </template>
-      <template v-else>
-        <video ref="videoRef" autoplay muted playsinline class="video-player"></video>
-      </template>
-
+  <div ref="wrapperRef" class="monitor-wrapper">
+    <Teleport to="body" :disabled="!isExpanded">
       <div
-        class="tag-live"
-        :style="{ backgroundColor: node.streamType === 'mjpeg' ? '#e67e22' : '#e74c3c' }"
+        :class="{ 'preview-layer': isExpanded }"
+        @click.self="closePreview"
+        @keydown="onPreviewKeydown"
       >
-        LIVE | {{ node.streamType === 'mjpeg' ? 'MJPEG' : 'H.264' }}
+        <section
+          ref="panelRef"
+          class="monitor-card"
+          :class="{ 'is-expanded': isExpanded }"
+          :role="isExpanded ? 'dialog' : undefined"
+          :aria-modal="isExpanded ? true : undefined"
+          :aria-label="isExpanded ? node.id + ' 实时预览' : undefined"
+        >
+          <header v-if="isExpanded" class="preview-header">
+            <div class="preview-title">
+              <span class="eyebrow">实时预览</span>
+              <h2>{{ node.id }}</h2>
+            </div>
+            <button ref="closeRef" class="icon-button" aria-label="关闭预览" @click="closePreview">
+              <el-icon><Close /></el-icon>
+            </button>
+          </header>
+          <div class="video-stage">
+            <img
+              v-if="node.streamType === 'mjpeg'"
+              :src="streamHttpUrl(node.http, '/mjpeg')"
+              class="video-player"
+              alt="MJPEG 实时画面"
+              @load="phase = 'playing'"
+              @error="phase = 'waiting'"
+            />
+            <video
+              v-else
+              ref="videoRef"
+              autoplay
+              muted
+              playsinline
+              class="video-player"
+              @playing="phase = 'playing'"
+              @waiting="phase = 'waiting'"
+              @error="phase = 'waiting'"
+            ></video>
+            <div v-if="phase !== 'playing'" class="signal-placeholder">
+              <el-icon><VideoCamera /></el-icon><span>{{ phaseLabel }}</span>
+              <small v-if="isExpanded">收到设备画面后将自动播放</small>
+            </div>
+            <div class="stream-badges">
+              <span class="stream-badge">{{
+                node.streamType === 'mjpeg' ? 'MJPEG' : 'H.264'
+              }}</span>
+              <span v-if="node.isRecord" class="record-badge"><i></i> REC</span>
+            </div>
+            <button
+              v-if="!isExpanded"
+              class="open-preview"
+              :aria-label="'预览节点 ' + node.id"
+              @click="openPreview"
+            >
+              <span class="open-hint"
+                ><el-icon><FullScreen /></el-icon>打开预览</span
+              >
+            </button>
+          </div>
+          <footer class="preview-footer">
+            <div class="node-summary">
+              <strong v-if="!isExpanded">{{ node.id }}</strong>
+              <span class="connection-status" :class="{ live: phase === 'playing' }"
+                ><i></i>{{ phaseLabel }}</span
+              >
+            </div>
+            <div v-if="isExpanded" class="node-details">
+              <span
+                >UDP <b>{{ node.udp }}</b></span
+              ><span
+                >视频端口 <b>{{ node.http }}</b></span
+              >
+              <span>{{ node.isRecord ? '录制已开启 · 3GB 录像池' : '录制未开启' }}</span>
+            </div>
+            <el-popconfirm
+              v-if="isExpanded && canManage"
+              title="确定停止该节点的视频与录制？"
+              @confirm="emit('close', node.id)"
+            >
+              <template #reference
+                ><el-button type="danger" text :icon="Delete">停止节点</el-button></template
+              >
+            </el-popconfirm>
+            <el-icon v-if="!isExpanded" class="expand-icon"><FullScreen /></el-icon>
+          </footer>
+        </section>
       </div>
-
-      <div v-if="node.isRecord" class="tag-rec"><span class="dot">●</span> REC</div>
-
-      <div class="tag-id">{{ node.id }}</div>
-
-      <transition name="slide-fade">
-        <div v-if="isExpanded" class="detail-panel" @click.stop>
-          <div class="panel-header">节点详情</div>
-          <div class="info-item"><span>设备名称:</span> {{ node.id }}</div>
-          <div class="info-item">
-            <span>推流模式:</span> {{ node.streamType === 'mjpeg' ? 'MJPEG 原图' : 'H.264 视频' }}
-          </div>
-
-          <div class="info-item">
-            <span>录制状态:</span>
-            <el-tag :type="node.isRecord ? 'danger' : 'info'" size="small" effect="dark">
-              {{ node.isRecord ? '服务器同步录制中 (3G上限覆盖)' : '未开启录制' }}
-            </el-tag>
-          </div>
-          <div class="info-item"><span>UDP 通讯端口:</span> {{ node.udp }}</div>
-          <div class="info-item"><span>数据流端口:</span> {{ node.http }}</div>
-
-          <div class="action-footer">
-            <el-button type="danger" :icon="Delete" size="small" @click="handleClose">
-              强制中断此节点
-            </el-button>
-            <el-button size="small" @click="toggleExpand">收起预览</el-button>
-          </div>
-        </div>
-      </transition>
-    </div>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
 .monitor-wrapper {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 4 / 3;
-}
-.backdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(8px);
-  z-index: 99;
+  min-width: 0;
 }
 .monitor-card {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: #000;
-  border-radius: 12px;
   overflow: hidden;
-  border: 1px solid var(--el-border-color-darker);
-  cursor: pointer;
-  transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
-  display: flex;
+  border: 1px solid var(--el-border-color);
+  border-radius: 16px;
+  background: var(--el-bg-color-overlay);
+  box-shadow: 0 4px 20px #0000000a;
 }
-.monitor-card.is-expanded {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 80vw;
-  max-width: 1000px;
-  height: auto;
-  aspect-ratio: auto;
-  z-index: 100;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
-  cursor: default;
+.monitor-card:not(.is-expanded) {
+  transition:
+    border-color 180ms,
+    box-shadow 180ms;
+}
+.monitor-card:not(.is-expanded):hover {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 8px 28px #00000020;
+}
+.video-stage {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  background: #0b1018;
+  overflow: hidden;
 }
 .video-player {
+  display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  transition: width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
-  background: #111;
+  object-fit: contain;
 }
-.monitor-card.is-expanded .video-player {
-  width: 70%;
-  border-right: 1px solid var(--el-border-color-darker);
-}
-.tag-live {
+.signal-placeholder {
   position: absolute;
-  top: 10px;
-  left: 10px;
-  color: white;
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: bold;
-  border-radius: 4px;
-  letter-spacing: 0.5px;
-  z-index: 2;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: #8291a5;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, #19253688, transparent 70%);
 }
-
-.tag-rec {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #f56c6c;
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: bold;
-  border-radius: 4px;
-  border: 1px solid #f56c6c;
-  z-index: 2;
-  animation: blink 1.5s infinite;
+.signal-placeholder .el-icon {
+  font-size: 32px;
+  opacity: 0.6;
 }
-.tag-rec .dot {
-  margin-right: 3px;
-}
-@keyframes blink {
-  0% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
-  }
-  100% {
-    opacity: 1;
-  }
-}
-
-.tag-id {
-  position: absolute;
-  bottom: 10px;
-  left: 10px;
-  background: rgba(0, 0, 0, 0.6);
-  color: white;
-  padding: 4px 10px;
+.signal-placeholder span {
   font-size: 13px;
-  border-radius: 6px;
-  backdrop-filter: blur(4px);
-  transition: opacity 0.2s;
 }
-.monitor-card.is-expanded .tag-live,
-.monitor-card.is-expanded .tag-rec,
-.monitor-card.is-expanded .tag-id {
-  opacity: 0;
+.signal-placeholder small {
+  color: #65758b;
+  font-size: 12px;
+}
+.stream-badges {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  gap: 8px;
   pointer-events: none;
 }
-.detail-panel {
-  width: 30%;
-  background: var(--el-bg-color-overlay);
-  padding: 24px;
+.stream-badge,
+.record-badge {
+  padding: 5px 8px;
+  border: 1px solid #ffffff1c;
+  border-radius: 6px;
+  color: #d6e1f0;
+  background: #101722ba;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.record-badge {
+  color: #ff9696;
+}
+.record-badge i,
+.connection-status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.open-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  cursor: pointer;
+  background: transparent;
+  color: white;
+}
+.open-preview:focus-visible {
+  outline: 3px solid var(--el-color-primary);
+  outline-offset: -3px;
+}
+.open-hint {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #ffffff16;
+  font-size: 12px;
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity 180ms,
+    transform 180ms;
+}
+.open-preview:hover .open-hint,
+.open-preview:focus-visible .open-hint {
+  opacity: 1;
+  transform: none;
+}
+.preview-footer {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 20px;
+  min-height: 28px;
+}
+.node-summary {
   display: flex;
   flex-direction: column;
-  box-sizing: border-box;
+  min-width: 0;
+  gap: 6px;
 }
-.panel-header {
-  font-size: 16px;
-  font-weight: bold;
-  margin-bottom: 20px;
+.node-summary strong {
+  font-size: 14px;
   color: var(--el-text-color-primary);
-  border-bottom: 1px solid var(--el-border-color-lighter);
-  padding-bottom: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.info-item {
-  font-size: 13px;
-  color: var(--el-text-color-regular);
-  margin-bottom: 16px;
-}
-.info-item span {
-  color: var(--el-text-color-secondary);
-  display: block;
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   font-size: 11px;
-  margin-bottom: 6px;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
 }
-.action-footer {
-  margin-top: auto;
+.connection-status.live {
+  color: #39b887;
+}
+.expand-icon {
+  margin-left: auto;
+  color: var(--el-text-color-secondary);
+}
+.preview-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #03070ed9;
+  backdrop-filter: blur(12px);
+}
+.is-expanded {
+  width: min(1200px, 100%);
+  height: min(820px, calc(100dvh - 48px));
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  transform-origin: top left;
+  border-color: #ffffff20;
+  box-shadow: 0 32px 120px #0008;
 }
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.3s;
+.preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  gap: 20px;
 }
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
+.preview-title {
+  min-width: 0;
 }
-.slide-fade-enter-active {
-  transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--el-text-color-secondary);
 }
-.slide-fade-leave-active {
-  transition: all 0.25s ease;
+.preview-title h2 {
+  margin: 5px 0 0;
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  overflow-wrap: anywhere;
+  max-height: 58px;
+  overflow: auto;
 }
-.slide-fade-enter-from,
-.slide-fade-leave-to {
-  transform: translateX(30px);
-  opacity: 0;
+.icon-button {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border: 1px solid var(--el-border-color);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--el-text-color-primary);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 160ms;
 }
-
-/* --- 移动端：放大态由「左右分栏」改为「上下堆叠」 --- */
-@media screen and (max-width: 768px) {
-  .monitor-card.is-expanded {
-    width: 94vw;
-    max-width: 94vw;
-    max-height: 88vh;
-    flex-direction: column;
-    overflow-y: auto;
+.icon-button:hover {
+  background: var(--el-fill-color);
+}
+.icon-button:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 3px;
+}
+.is-expanded .video-stage {
+  flex: 1;
+  min-height: 0;
+  aspect-ratio: auto;
+}
+.is-expanded .preview-footer {
+  flex-wrap: wrap;
+  border-top: 1px solid var(--el-border-color);
+}
+.node-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-right: auto;
+}
+.node-details b {
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+  margin-left: 5px;
+}
+@media (max-width: 640px) {
+  .preview-layer {
+    padding: 10px;
   }
-  /* 视频铺满宽度，详情面板移到下方 */
-  .monitor-card.is-expanded .video-player {
-    width: 100%;
-    aspect-ratio: 4 / 3;
-    border-right: none;
-    border-bottom: 1px solid var(--el-border-color-darker);
+  .is-expanded {
+    height: calc(100dvh - 20px);
+    border-radius: 12px;
   }
-  .detail-panel {
-    width: 100%;
+  .preview-header {
     padding: 16px;
   }
-  /* 竖向布局下详情面板从下方滑入更自然 */
-  .slide-fade-enter-from,
-  .slide-fade-leave-to {
-    transform: translateY(20px);
+  .preview-footer {
+    padding: 14px 16px;
+    gap: 14px;
+  }
+  .node-details {
+    width: 100%;
+    gap: 10px 16px;
+  }
+  .is-expanded .preview-footer > .el-button {
+    margin-left: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
   }
 }
 </style>

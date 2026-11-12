@@ -25,6 +25,7 @@
         v-for="node in store.nodes"
         :key="node.id"
         :node="node"
+        :can-manage="store.isAdmin"
         :streamUrl="streamWsUrl(node.http)"
         @close="store.stopNode(node.id)"
       />
@@ -202,7 +203,7 @@ const confirmAddNode = async () => {
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 420px));
   gap: 20px;
 }
 .occupied-ports-info {
