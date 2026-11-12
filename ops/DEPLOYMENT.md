@@ -1,5 +1,13 @@
 # Monitor production deployment
 
+## Private access added 2026-11-12
+
+Nginx requires HTTP Basic authentication for the entire HTTPS site, including static files, API requests and video upgrades. The username is `chronicle`. The generated password is stored in the owner's local `monitor-access.txt` file and root-only `/etc/monitor-access.credentials` on the server. The password hash lives in `/etc/nginx/monitor.htpasswd`, owned by root and readable by the Nginx group. Application administrator authentication still controls management operations.
+
+Anonymous requests to `/`, `/api/health`, `/video/9051/stream` and `/video/9051/mjpeg` were verified to return 401. Authenticated root and health requests return 200. Certificate challenge paths bypass Basic authentication so renewal continues to work. The local systemd health check connects directly to the loopback API.
+
+The preceding Nginx configuration is backed up at `/var/backups/monitor/basic-auth-20261112-153201/monitor.chronicleiras.top`. Restoring that configuration would reopen anonymous site access. Run `nginx -t` before any reload. Public command-line verification now requires `curl -u chronicle https://monitor.chronicleiras.top/api/health`, which prompts for the access password.
+
 ## Release 20261112-03
 
 - URL https://monitor.chronicleiras.top
