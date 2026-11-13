@@ -21,6 +21,7 @@ export const useDeviceStore = defineStore('device', {
     nodes: [] as DeviceNode[],
     systemStatus: { cpuUsage: '0', memUsage: '0', memTotal: '0', uptime: '0' },
     loading: false,
+    stoppingIds: [] as string[],
     // 从本地存储读取管理员状态
     isAdmin: false,
   }),
@@ -107,12 +108,16 @@ export const useDeviceStore = defineStore('device', {
 
     async stopNode(id: string) {
       if (!this.isAdmin) return ElMessage.error('无权限操作')
+      if (this.stoppingIds.includes(id)) return
+      this.stoppingIds = [...this.stoppingIds, id]
       try {
         await axios.post(`${API_BASE}/nodes/stop`, { id })
         ElMessage.success(`节点 ${id} 已下线`)
         await this.refreshNodes()
       } catch (err) {
         ElMessage.error('停止节点失败')
+      } finally {
+        this.stoppingIds = this.stoppingIds.filter((item) => item !== id)
       }
     },
 
