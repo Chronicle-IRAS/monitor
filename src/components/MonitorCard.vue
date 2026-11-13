@@ -2,7 +2,14 @@
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 // @ts-ignore
 import JMuxer from 'jmuxer'
-import { Delete, Close, FullScreen, Loading, VideoPause } from '@element-plus/icons-vue'
+import {
+  Delete,
+  Close,
+  FullScreen,
+  Loading,
+  VideoPause,
+  WarningFilled,
+} from '@element-plus/icons-vue'
 import { streamHttpUrl } from '@/config'
 
 const props = defineProps<{
@@ -34,10 +41,20 @@ const RECONNECT_DELAY = 2000
 const wrapperRef = ref<HTMLElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
 const closeRef = ref<HTMLButtonElement | null>(null)
-const phase = ref<'connecting' | 'playing' | 'waiting'>('connecting')
+const CONNECT_TIMEOUT_MS = 6000
+const phase = ref<'connecting' | 'playing' | 'waiting' | 'offline'>('connecting')
+const mjpegKey = ref(0)
 const phaseLabel = computed(
-  () => ({ connecting: '正在连接', playing: '实时画面', waiting: '等待视频信号' })[phase.value],
+  () =>
+    ({
+      connecting: '正在连接',
+      playing: '实时画面',
+      waiting: '等待视频信号',
+      offline: '未连接',
+    })[phase.value],
 )
+let connectWatchdog: number | null = null
+let watchdogArmed = false
 let previousFocus: HTMLElement | null = null
 let previousOverflow = ''
 let transition: Animation | undefined
@@ -127,15 +144,73 @@ const requestStop = () => {
   emit('close', props.node.id)
 }
 
+const clearConnectWatchdog = () => {
+  if (connectWatchdog !== null) {
+    clearTimeout(connectWatchdog)
+    connectWatchdog = null
+  }
+  watchdogArmed = false
+}
+
+const armConnectWatchdog = () => {
+  if (watchdogArmed) return
+  watchdogArmed = true
+  if (connectWatchdog !== null) clearTimeout(connectWatchdog)
+  connectWatchdog = window.setTimeout(() => {
+    connectWatchdog = null
+    watchdogArmed = false
+    if (phase.value !== 'playing') phase.value = 'offline'
+  }, CONNECT_TIMEOUT_MS)
+}
+
+const markPlaying = () => {
+  phase.value = 'playing'
+  clearConnectWatchdog()
+}
+
+const markOffline = () => {
+  phase.value = 'offline'
+  clearConnectWatchdog()
+}
+
+const retryConnection = () => {
+  if (props.stopping) return
+  clearConnectWatchdog()
+  phase.value = 'connecting'
+  armConnectWatchdog()
+
+  if (props.node.streamType === 'mjpeg' || props.node.streamType === 'jpeg-udp') {
+    mjpegKey.value += 1
+    return
+  }
+
+  if (startTimer !== null) {
+    clearTimeout(startTimer)
+    startTimer = null
+  }
+  if (reconnectTimer !== null) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+  if (ws) {
+    ws.onclose = null
+    ws.close()
+    ws = null
+  }
+  startTimer = window.setTimeout(connect, 100)
+}
+
 const connect = () => {
   if (destroyed) return
   ws = new WebSocket(props.streamUrl)
   ws.binaryType = 'arraybuffer'
   ws.onopen = () => {
-    phase.value = 'waiting'
+    if (phase.value !== 'playing') phase.value = 'waiting'
   }
 
   ws.onmessage = (event) => {
+    if (phase.value !== 'playing') phase.value = 'waiting'
+    clearConnectWatchdog()
     if (jmuxer) {
       jmuxer.feed({ video: new Uint8Array(event.data) })
     }
@@ -147,12 +222,14 @@ const connect = () => {
   ws.onclose = () => {
     if (destroyed) return
     phase.value = 'connecting'
+    armConnectWatchdog()
     console.log(`[${props.node.id}] 视频流断开，${RECONNECT_DELAY}ms 后重连`)
     reconnectTimer = window.setTimeout(connect, RECONNECT_DELAY)
   }
 }
 
 onMounted(() => {
+  armConnectWatchdog()
   if (props.node.streamType === 'mjpeg' || props.node.streamType === 'jpeg-udp') return
   if (!videoRef.value) return
 
@@ -171,6 +248,7 @@ onMounted(() => {
 onUnmounted(() => {
   destroyed = true
   transition?.cancel()
+  clearConnectWatchdog()
   if (isExpanded.value) document.body.style.overflow = previousOverflow
   if (startTimer) window.clearTimeout(startTimer)
   if (reconnectTimer) window.clearTimeout(reconnectTimer)
@@ -208,14 +286,15 @@ onUnmounted(() => {
               <el-icon><Close /></el-icon>
             </button>
           </header>
-          <div class="video-stage" :aria-busy="phase !== 'playing'">
+          <div class="video-stage" :aria-busy="phase === 'connecting' || phase === 'waiting'">
             <img
               v-if="node.streamType === 'mjpeg' || node.streamType === 'jpeg-udp'"
+              :key="mjpegKey"
               :src="streamHttpUrl(node.http, '/mjpeg')"
               class="video-player"
               alt="MJPEG 实时画面"
-              @load="phase = 'playing'"
-              @error="phase = 'waiting'"
+              @load="markPlaying"
+              @error="markOffline"
             />
             <video
               v-else
@@ -224,9 +303,9 @@ onUnmounted(() => {
               muted
               playsinline
               class="video-player"
-              @playing="phase = 'playing'"
+              @playing="markPlaying"
               @waiting="phase = 'waiting'"
-              @error="phase = 'waiting'"
+              @error="markOffline"
             ></video>
             <Transition name="signal-fade">
               <div
@@ -235,12 +314,26 @@ onUnmounted(() => {
                 role="status"
                 aria-live="polite"
               >
-                <span class="signal-spinner" :class="phase" aria-hidden="true"></span>
+                <span v-if="phase === 'offline'" class="signal-offline-icon" aria-hidden="true"
+                  ><el-icon><WarningFilled /></el-icon
+                ></span>
+                <span v-else class="signal-spinner" :class="phase" aria-hidden="true"></span>
                 <span class="signal-label">
                   <span>{{ phaseLabel }}</span>
-                  <span class="signal-dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span>
+                  <span v-if="phase !== 'offline'" class="signal-dots" aria-hidden="true"
+                    ><i>.</i><i>.</i><i>.</i></span
+                  >
                 </span>
-                <small v-if="isExpanded">正在建立视频连接，收到画面后自动播放</small>
+                <small v-if="phase === 'offline'">请检查设备电源、网络或推流地址</small>
+                <small v-else-if="isExpanded">正在建立视频连接，收到画面后自动播放</small>
+                <button
+                  v-if="phase === 'offline'"
+                  type="button"
+                  class="retry-button"
+                  @click.stop="retryConnection"
+                >
+                  重新检测
+                </button>
               </div>
             </Transition>
             <Transition name="signal-fade">
@@ -275,6 +368,7 @@ onUnmounted(() => {
                 :class="{
                   live: phase === 'playing' && !stopping,
                   waiting: phase === 'waiting',
+                  offline: phase === 'offline',
                   stopping,
                 }"
                 ><i></i>{{ stopping ? '正在停止' : phaseLabel }}</span
@@ -445,6 +539,42 @@ onUnmounted(() => {
 .signal-placeholder small {
   color: #65758b;
   font-size: 12px;
+}
+.signal-offline-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid #ffffff1f;
+  border-radius: 50%;
+  background: #ffffff08;
+  color: #e5b567;
+  font-size: 20px;
+}
+.retry-button {
+  margin-top: 2px;
+  padding: 6px 14px;
+  border: 1px solid #ffffff26;
+  border-radius: 8px;
+  background: #ffffff0d;
+  color: #d6e1f0;
+  font: inherit;
+  font-size: 12px;
+  pointer-events: auto;
+  cursor: pointer;
+  transition:
+    color 160ms,
+    border-color 160ms,
+    background 160ms;
+}
+.retry-button:hover {
+  border-color: var(--el-color-primary);
+  background: #6aa8ff14;
+  color: var(--el-color-primary);
+}
+.retry-button:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
 }
 .signal-fade-enter-active,
 .signal-fade-leave-active {
@@ -620,7 +750,10 @@ onUnmounted(() => {
 .connection-status.stopping {
   color: #e5b567;
 }
-.connection-status:not(.live) i {
+.connection-status.offline {
+  color: var(--el-color-danger);
+}
+.connection-status:not(.live):not(.offline) i {
   animation: status-pulse 1.5s ease-in-out infinite;
 }
 .card-action-group {
